@@ -4,7 +4,7 @@ The agent runs this after every change. The tester runs it in full on Saturday 1
 
 ## 1. Numbers match NASA
 
-- [ ] `node verify/accuracy.mjs` passes every row (Sun and Earth direction within 0.01 deg of JPL Horizons at all 10 sites; share of time up within 1 percentage point; rise and set times within 1 percent)
+- [ ] `node verify/accuracy.mjs` passes every row (Sun and Earth direction within 0.01 deg of JPL Horizons at all 17 sites; share of time up within 1 percentage point; rise and set times within 1 percent)
 
 ## 2. It loads
 
@@ -28,12 +28,14 @@ The agent runs this after every change. The tester runs it in full on Saturday 1
 
 ## 4. Terrain matches NASA's maps (validator)
 
-- [ ] At Shackleton rim and de Gerlache rim, the skyline direction of the highest peak matches Quickmap or Moon Trek
+- [ ] At Peak near Shackleton and de Gerlache Rim, the skyline direction of the highest peak matches Quickmap or Moon Trek
+- [ ] `node verify/sunlight-vs-nasa.mjs`: each south pole site's share of time in sunlight within 5 points of NASA's own sunlight map
+- [ ] `node verify/rover.mjs`: every 5 m map lines up with the LOLA map around it
 - [ ] A crater that Quickmap shows in permanent shadow is dark in our app on every date
 
 ## 5. People understand it (tester)
 
-Task for 5 people who have not seen it: "Which of these two sites is better for landing on 25 Oct 2027, and why?" No help.
+Task for 5 people who have not seen it: "Which of these two sites is better for landing on 19 Oct 2027, and why?" No help. (The page opens on 19 Oct 2027 with Connecting Ridge and Amundsen Rim.)
 
 - [ ] At least 4 of 5 answer correctly within 1 minute
 - [ ] Notes on where each person hesitated are in the bug list

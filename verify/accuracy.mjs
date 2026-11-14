@@ -26,7 +26,7 @@ const DIRECTION_TOL_DEG = 0.01, SHARE_TOL_PTS = 1, EVENT_TOL_FRAC = 0.01, EVENT_
 const DATES = ['2026-02-03 00:00', '2026-06-17 13:30', '2026-11-14 09:00', '2027-01-10 06:00', '2027-04-15 06:00', '2027-07-01 06:00',
   '2027-10-25 06:00', '2027-12-20 06:00', '2028-05-08 21:15', '2029-03-22 04:45', '2030-08-30 17:00', '2030-12-30 23:00'];
 const BODIES = [{ key: 'sun', name: 'Sun', id: '10' }, { key: 'earth', name: 'Earth', id: '399' }];
-const TIMING_SITES = ['shk-a', 'ridge', 'degerl', 'malap'];
+const TIMING_SITES = ['peak-shk', 'ridge', 'degerl', 'malap'];
 const TIMING_STARTS = ['2027-10-25 06:00', '2027-07-25 00:00']; // DEFAULT_DATE in site/lib/app3d.js; Sun at the Moon's equator on 4 Aug 2027
 
 // lunar.js is a browser script that sets window.Lunar. Run it in a sandbox with a fake window.
