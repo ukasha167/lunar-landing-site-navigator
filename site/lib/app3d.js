@@ -4,8 +4,11 @@
   Each prototype supplies its own look (shader style, colours) and its own layout.
 */
 import { THREE, OrbitControls, loadMoonData, createGlobe, createEarth, createSun, createStars, createRelief, createSkylineRing,
-  Stage, pickGlobe, onTap, sunDir, earthDir, llToVec, placeName, siteStats, earthBlocksSun } from './moon3d.js';
-export * from './moon3d.js';
+  Stage, pickGlobe, onTap, sunDir, earthDir, llToVec, placeName, siteStats, earthBlocksSun, addDetail } from './moon3d.js?v=5';
+export * from './moon3d.js?v=5';
+import * as M3 from './moon3d.js?v=5';
+import { loadSiteIndex, dataAt, loadPatch } from './real-ground.js?v=4';
+export { dataAt };
 const L = window.Lunar;
 
 export const DEFAULT_DATE = new Date(Date.UTC(2027, 9, 25, 6)); // a lunar day with the Sun above the south pole's horizon
@@ -25,7 +28,8 @@ export const DEFAULT_DATE = new Date(Date.UTC(2027, 9, 25, 6)); // a lunar day w
 */
 export async function createApp(o) {
   const opt = Object.assign({ style: 'photo', clear: 0x000000, maxPlaces: 3, stars: true, earthDist: 60, start: [], date: DEFAULT_DATE }, o);
-  await Promise.all([loadMoonData(), L.loadEphemeris(opt.ephemeris || 'data/ephemeris.json')]);
+  // the built-in sites' skylines come with the index of their NASA maps (site/assets/sites, tools/build-sites.py)
+  await Promise.all([loadMoonData(), L.loadEphemeris(opt.ephemeris || 'data/ephemeris.json'), loadSiteIndex().then(j => L.useSkylines(j))]);
   // the stats look up to 60 days ahead, so the last date we accept is 61 days before the table ends
   const dateRange = { start: L.RANGE.start, end: new Date(L.RANGE.end.getTime() - 61 * 864e5) };
   const clampDate = d => new Date(Math.min(Math.max(new Date(d).getTime(), dateRange.start.getTime()), dateRange.end.getTime()));
@@ -41,18 +45,24 @@ export async function createApp(o) {
   Object.assign(controls, { enableDamping: true, dampingFactor: 0.08, minDistance: 1.18, maxDistance: 12, rotateSpeed: 0.6, enablePan: false });
   const app = {
     THREE, stage, scene, globe, earth, sun, camera, controls, opt, dateRange,
+    lib: M3, // moon3d.js as this page loaded it: modules loaded later use this copy and its terrain data
     date: clampDate(opt.date), places: [], playing: false,
     onChange: opt.onChange || (() => {}), onRender: opt.onRender || (() => {}),
   };
   app.globeView = stage.add(opt.globeEl, scene, camera, { controls, clear: opt.clear, before: () => { sun.place(sunDir(app.date), camera); app.onRender(app); } });
 
-  // camera: keep target locked on the Moon's center (0, 0, 0) so rotation stays centered
-  app.focus = (lat = -89.5, lon = 0, dist = 4.4) => {
-    const s = L.subSolar(app.date);
-    const camLat = lat <= -82 ? -42 : lat >= 82 ? 42 : Math.max(-65, Math.min(65, lat));
-    const camLon = (lat <= -82 || lat >= 82) ? s.lon + 75 : lon;
-    const side = llToVec(camLat, camLon);
-    camera.position.copy(side.multiplyScalar(dist));
+  // camera: keep target locked on the Moon's center (0, 0, 0) so rotation stays centered.
+  // A polar site is seen from straight below (or above) its pole, far enough that the whole disc fits the view,
+  // with 0 deg longitude (the Earth-facing side) at the top.
+  app.focus = (lat = -89.5, lon = 0, dist = null) => {
+    if (lat <= -80 || lat >= 80) {
+      const b = opt.globeEl.getBoundingClientRect(), aspect = b.width / Math.max(1, b.height);
+      const halfV = camera.fov / 2 * Math.PI / 180, halfH = Math.atan(Math.tan(halfV) * aspect);
+      const fit = 1 / Math.sin(Math.min(halfV, halfH) * 0.92);
+      camera.position.copy(llToVec(lat < 0 ? -89 : 89, 0).multiplyScalar(dist ?? fit));
+    } else {
+      camera.position.copy(llToVec(Math.max(-65, Math.min(65, lat)), lon).multiplyScalar(dist ?? 3.0));
+    }
     controls.target.set(0, 0, 0);
     controls.update();
     stage.request();
@@ -77,14 +87,35 @@ export async function createApp(o) {
     p.eclipse = earthBlocksSun(app.date);
   };
 
+  /*
+    NASA block patch (44 km, 59 to 118 m per pixel) for a place, if a built-in site's patch holds it. Once loaded it joins
+    every height lookup (addDetail), so the block and skyline of any place inside it use it too.
+  */
+  const loaded = new Set();
+  const loadBlock = (lat, lon) => {
+    const d = dataAt(lat, lon);
+    if (!d.block || loaded.has(d.block.file)) return null;
+    return loadPatch(d.block, 'block').then(P => { addDetail(P); loaded.add(d.block.file); return P; });
+  };
+
   /** Add a place. Returns the place. The page mounts its relief with mountRelief(place, el). */
   app.addPlace = (lat, lon, name) => {
-    if (app.places.length >= opt.maxPlaces) app.removePlace(app.places[0]);
+    if (app.places.length >= opt.maxPlaces) {
+      if (opt.onLimit) { opt.onLimit(app); return null; }
+      app.removePlace(app.places[0]);
+    }
     const nm = placeName(lat, lon);
     const relief = createRelief(lat, lon, { style: opt.reliefStyle || opt.style, sizeKm: opt.reliefKm || 40, n: opt.reliefN || 256, walls: opt.walls ?? true, wallColor: opt.wallColor ?? 0x2a2a2c, name: name || nm.near || nm.coords, study: !!opt.study, studyInk: opt.studyInk });
-    const p = { id: Math.random().toString(36).slice(2, 8), lat, lon, name: name || nm.nearSite?.name || nm.near || 'Picked point', coords: nm.coords, near: nm.near, relief, view: null, stats: null, index: 0 };
+    const p = { id: Math.random().toString(36).slice(2, 8), lat, lon, name: name || nm.nearSite?.name || nm.near || 'Picked point', coords: nm.coords, near: nm.near, relief, view: null, stats: null, index: 0, data: dataAt(lat, lon), loading: false, dataVersion: 0 };
     app.places.push(p); app.places.forEach((q, i) => q.index = i);
     app._updatePlace(p); app.onChange(app); stage.request();
+    // the place's NASA block patch: rebuild the block and its numbers when it arrives
+    const wait = loadBlock(lat, lon);
+    if (wait) {
+      p.loading = true;
+      wait.then(() => { if (!app.places.includes(p)) return; relief.refresh(); p.stats = null; p.dataVersion++; }, e => console.warn('NASA map did not load:', e.message))
+        .finally(() => { p.loading = false; if (!app.places.includes(p)) return; app._updatePlace(p); app.onChange(app); stage.request(); });
+    }
     return p;
   };
   app.removePlace = p => {
@@ -99,6 +130,7 @@ export async function createApp(o) {
   */
   app.mountRelief = (p, el, { view = 'orbit', clear = opt.clear, sky = true, fov = 38, height = null, aim = 'sun' } = {}) => {
     if (p.view) stage.remove(p.view);
+    p.viewMode = view;
     app._updatePlace(p); // sun and earth vectors are needed to aim the camera
     const sc = new THREE.Scene(); sc.add(p.relief.group);
     const size = p.relief.tile.sizeKm, mid = (p.relief.tile.max - p.relief.tile.min) * 0.5;
@@ -113,11 +145,17 @@ export async function createApp(o) {
       cam.position.set(-Math.sin(az) * 0.0001, h0, Math.cos(az) * 0.0001);
       Object.assign(ctl, { enableZoom: false, rotateSpeed: -0.35, minPolarAngle: Math.PI * 0.3, maxPolarAngle: Math.PI * 0.62 });
     } else {
-      const s = p.relief.sunLocal; const az = Math.atan2(s.x, -s.z) + Math.PI * 0.72;
+      // Light from the side: at the pole the Sun is a degree or two up, so a camera facing it sees only
+      // the shadowed side of every slope. Looking across the light shows lit slopes and long shadows.
+      const s = p.relief.sunLocal;
+      const az = Math.atan2(s.x, -s.z) + Math.PI * 0.5;
       const box = el.getBoundingClientRect(), aspect = box.width / Math.max(1, box.height), k = aspect < 1.2 ? Math.pow(1.2 / aspect, 0.85) : 1;
-      const size0 = size; { const size = size0 * k;
-      cam.position.set(Math.sin(az) * size * 0.95, height ?? size * 0.78, -Math.cos(az) * size * 0.95); ctl.target.set(0, mid * 0.4, 0);
-      Object.assign(ctl, { minDistance: size0 * 0.25, maxDistance: size0 * 3, maxPolarAngle: Math.PI * 0.47 }); }
+      const size0 = size; {
+        const size = size0 * k;
+        cam.position.set(Math.sin(az) * size * 1.05, height ?? (mid + size * 0.55), -Math.cos(az) * size * 1.05);
+        ctl.target.set(0, mid * 0.6, 0);
+        Object.assign(ctl, { minDistance: size0 * 0.25, maxDistance: size0 * 3, maxPolarAngle: Math.PI * 0.47 });
+      }
     }
     if (sky) {
       const sunM = new THREE.Mesh(new THREE.CircleGeometry(4000 * Math.tan(0.27 * Math.PI / 180), 40), new THREE.MeshBasicMaterial({ color: opt.sunColor ?? 0xffffff, toneMapped: false }));
@@ -127,7 +165,7 @@ export async function createApp(o) {
       p.skyObjs = { sun: sunM, earth: em.mesh, earthMesh: em };
     }
     p.camera = cam; p.controls = ctl; p.scene = sc;
-    p.view = stage.add(el, sc, cam, { controls: ctl, clear });
+    p.view = stage.add(el, sc, cam, { controls: ctl, clear, before: v => p.onReliefFrame?.(p, v) });
     app._updatePlace(p); stage.request();
     return p.view;
   };
@@ -140,7 +178,7 @@ export async function createApp(o) {
   };
 
   // picking
-  onTap(opt.globeEl, e => { const ll = pickGlobe(e, opt.globeEl, camera); if (ll) { const p = app.addPlace(ll.lat, ll.lon); opt.onPick?.(p, app); } });
+  onTap(opt.globeEl, e => { const ll = pickGlobe(e, opt.globeEl, camera); if (ll) { const p = app.addPlace(ll.lat, ll.lon); if (p) opt.onPick?.(p, app); } });
 
   // playback: advances time only while playing, then stops drawing
   let last = 0;
@@ -154,6 +192,8 @@ export async function createApp(o) {
 
   window.__moonApp = app; // handy for measuring in devtools
   app.setDate(app.date); app.focus();
+  // the first places open with their NASA maps already in, so their blocks never show the coarse grid first
+  await Promise.all(opt.start.map(s => loadBlock(s.lat, s.lon)).filter(Boolean)).catch(e => console.warn('NASA map did not load:', e.message));
   for (const s of opt.start) app.addPlace(s.lat, s.lon, s.name);
   return app;
 }

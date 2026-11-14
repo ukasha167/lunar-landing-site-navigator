@@ -7,6 +7,9 @@
     south_pole_625m.u16    LOLA elevation resampled to a polar stereographic grid,
                            1024 x 1024 over +/-320 km around the south pole
     earth_2k.jpg           Earth day map (Three.js examples copy of NASA Blue Marble)
+  Finer NASA maps around the built-in sites (5 m to 118 m, real-ground.js) join every height lookup once loaded
+  (addDetail()). Nothing in this file makes up terrain: where no finer map is loaded, the ground is as coarse as
+  the 625 m or 3.8 km grid.
 
   Frame: the Moon sits at the origin with radius 1. A point at (lat, lon) is
   (cos lat cos lon, sin lat, -cos lat sin lon). Sun and Earth directions come
@@ -23,58 +26,129 @@ export const R_KM = 1737.4;
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 
 // ---------- data ----------
-const POLAR_N = 1024, POLAR_HALF = 320;
+const POLAR_N = 1024, POLAR_HALF = 320, SIN_75S = Math.sin(-75 * D2R);
+/*
+  Heights stay as the raw uint16 codes from the files (half metres + 20000). KM[code] is the height in km,
+  exactly the float32 a converted array would hold, so a read costs one table lookup and no 21 MB copy is kept.
+*/
+const KM = new Float32Array(65536);
+for (let u = 0; u < 65536; u++) KM[u] = (u - 20000) / 2000;
 let DATA = null;
 export async function loadMoonData(base = 'assets/') {
   if (DATA) return DATA;
-  const [gBuf, pBuf] = await Promise.all([
-    fetch(base + 'moon_height_8ppd.u16').then(r => r.arrayBuffer()),
-    fetch(base + 'south_pole_625m.u16').then(r => r.arrayBuffer()),
+  const tl = new THREE.TextureLoader(), bin = url => fetch(url).then(r => r.arrayBuffer());
+  // all four downloads start together
+  const [gBuf, pBuf, color, earth] = await Promise.all([
+    bin(base + 'moon_height_8ppd.u16'), bin(base + 'south_pole_625m.u16'),
+    tl.loadAsync(base + 'moon_color_4k.jpg'), tl.loadAsync(base + 'earth_2k.jpg'),
   ]);
-  const toKm = u => { const f = new Float32Array(u.length); for (let i = 0; i < u.length; i++) f[i] = (u[i] - 20000) / 2000; return f; };
-  const global = { w: 2880, h: 1440, km: toKm(new Uint16Array(gBuf)) };
-  const polar = { n: POLAR_N, half: POLAR_HALF, km: toKm(new Uint16Array(pBuf)) };
-  const tl = new THREE.TextureLoader();
-  const [color, earth] = await Promise.all([tl.loadAsync(base + 'moon_color_4k.jpg'), tl.loadAsync(base + 'earth_2k.jpg')]);
   for (const t of [color, earth]) { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; }
-  const halfTex = (f, w, h, wrap) => {
-    const d = new Uint16Array(f.length); for (let i = 0; i < f.length; i++) d[i] = THREE.DataUtils.toHalfFloat(f[i]);
+  const global = { w: 2880, h: 1440, u16: new Uint16Array(gBuf) };
+  const polar = { n: POLAR_N, half: POLAR_HALF, u16: new Uint16Array(pBuf) };
+  // half-float copies for the GPU through a second 64K table: one read per sample, no float-to-half conversion
+  const HALF = new Uint16Array(65536); for (let u = 0; u < 65536; u++) HALF[u] = THREE.DataUtils.toHalfFloat(KM[u]);
+  const halfTex = (u16, w, h, wrap) => {
+    const d = new Uint16Array(u16.length); for (let i = 0; i < u16.length; i++) d[i] = HALF[u16[i]];
     const t = new THREE.DataTexture(d, w, h, THREE.RedFormat, THREE.HalfFloatType);
     t.magFilter = t.minFilter = THREE.LinearFilter; if (wrap) t.wrapS = THREE.RepeatWrapping; t.needsUpdate = true; return t;
   };
-  DATA = { global, polar, color, earth, globalTex: halfTex(global.km, global.w, global.h, true), polarTex: halfTex(polar.km, POLAR_N, POLAR_N, false) };
+  DATA = { global, polar, color, earth, globalTex: halfTex(global.u16, global.w, global.h, true), polarTex: halfTex(polar.u16, POLAR_N, POLAR_N, false) };
   return DATA;
 }
 
-function bilinear(arr, w, h, x, y, wrapX) {
+// a: uint16 grid, read through KM
+function bilinear(a, w, h, x, y, wrapX) {
   if (wrapX) x = ((x % w) + w) % w; else x = Math.max(0, Math.min(w - 1.001, x));
   y = Math.max(0, Math.min(h - 1.001, y));
-  const x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0, x1 = wrapX ? (x0 + 1) % w : x0 + 1;
-  return arr[y0 * w + x0] * (1 - fx) * (1 - fy) + arr[y0 * w + x1] * fx * (1 - fy) + arr[(y0 + 1) * w + x0] * (1 - fx) * fy + arr[(y0 + 1) * w + x1] * fx * fy;
+  const x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0, x1 = wrapX ? (x0 + 1) % w : x0 + 1, r0 = y0 * w, r1 = r0 + w;
+  return KM[a[r0 + x0]] * (1 - fx) * (1 - fy) + KM[a[r0 + x1]] * fx * (1 - fy) + KM[a[r1 + x0]] * (1 - fx) * fy + KM[a[r1 + x1]] * fx * fy;
+}
+// bilinear() on the polar grid with its size fixed, for the skyline's inner loop (same arithmetic, twice as fast)
+function bilinearPolar(a, x, y) {
+  x = Math.max(0, Math.min(POLAR_N - 1.001, x)); y = Math.max(0, Math.min(POLAR_N - 1.001, y));
+  const x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0, r0 = y0 * POLAR_N + x0, r1 = r0 + POLAR_N;
+  return KM[a[r0]] * (1 - fx) * (1 - fy) + KM[a[r0 + 1]] * fx * (1 - fy) + KM[a[r1]] * (1 - fx) * fy + KM[a[r1 + 1]] * fx * fy;
 }
 export function polarXY(lat, lon) { const rho = 2 * R_KM * Math.tan((90 + lat) * D2R / 2); return [rho * Math.sin(lon * D2R), rho * Math.cos(lon * D2R)]; }
-// Catmull-Rom: smooth enough that slopes do not facet when a 625 m grid is stretched over a 40 km block
-function bicubic(arr, w, h, x, y, wrapX) {
+// Catmull-Rom: smooth enough that slopes do not facet when a 625 m grid is stretched over a 40 km block.
+// Written without closures: it runs 65,536 times per relief block.
+function cr(p0, p1, p2, p3, t) { return p1 + 0.5 * t * (p2 - p0 + t * (2 * p0 - 5 * p1 + 4 * p2 - p3 + t * (3 * (p1 - p2) + p3 - p0))); }
+function clampi(i, m) { return i < 0 ? 0 : i > m ? m : i; }
+function bicubic(a, w, h, x, y, wrapX) {
   const x1 = Math.floor(x), y1 = Math.floor(y), fx = x - x1, fy = y - y1;
-  const cr = (p0, p1, p2, p3, t) => p1 + 0.5 * t * (p2 - p0 + t * (2 * p0 - 5 * p1 + 4 * p2 - p3 + t * (3 * (p1 - p2) + p3 - p0)));
-  const at = (i, j) => { i = wrapX ? ((i % w) + w) % w : Math.max(0, Math.min(w - 1, i)); j = Math.max(0, Math.min(h - 1, j)); return arr[j * w + i]; };
-  const row = j => cr(at(x1 - 1, j), at(x1, j), at(x1 + 1, j), at(x1 + 2, j), fx);
-  return cr(row(y1 - 1), row(y1), row(y1 + 1), row(y1 + 2), fy);
+  let i0 = x1 - 1, i1 = x1, i2 = x1 + 1, i3 = x1 + 2;
+  if (wrapX) { i0 = ((i0 % w) + w) % w; i1 = ((i1 % w) + w) % w; i2 = ((i2 % w) + w) % w; i3 = ((i3 % w) + w) % w; }
+  else { i0 = clampi(i0, w - 1); i1 = clampi(i1, w - 1); i2 = clampi(i2, w - 1); i3 = clampi(i3, w - 1); }
+  const o0 = clampi(y1 - 1, h - 1) * w, o1 = clampi(y1, h - 1) * w, o2 = clampi(y1 + 1, h - 1) * w, o3 = clampi(y1 + 2, h - 1) * w;
+  return cr(
+    cr(KM[a[o0 + i0]], KM[a[o0 + i1]], KM[a[o0 + i2]], KM[a[o0 + i3]], fx),
+    cr(KM[a[o1 + i0]], KM[a[o1 + i1]], KM[a[o1 + i2]], KM[a[o1 + i3]], fx),
+    cr(KM[a[o2 + i0]], KM[a[o2 + i1]], KM[a[o2 + i2]], KM[a[o2 + i3]], fx),
+    cr(KM[a[o3 + i0]], KM[a[o3 + i1]], KM[a[o3 + i2]], KM[a[o3 + i3]], fx), fy);
 }
 /**
-  Elevation in km. Uses the 625 m polar grid wherever it has data, else the global grid. smooth: bicubic.
+  Elevation in km. Uses the 625 m polar grid wherever it has data, else the global grid, then any finer NASA patch
+  loaded with addDetail() that holds the point (finest last, each blended in by its weight). smooth: bicubic.
   The polar grid is a 640 km square, so it reaches 75.3 S at its corners but only 79.48 S at 0, 90, 180 and 270 E.
 */
 export function elevKm(lat, lon, smooth = false) {
-  const d = DATA, f = smooth ? bicubic : bilinear;
+  const d = DATA, f = smooth ? bicubic : bilinear; let h;
   if (lat < -75) {
     const [x, y] = polarXY(lat, lon);
     if (Math.max(Math.abs(x), Math.abs(y)) < POLAR_HALF - 1)
-      return f(d.polar.km, POLAR_N, POLAR_N, (x + POLAR_HALF) / (2 * POLAR_HALF) * POLAR_N - 0.5, (POLAR_HALF - y) / (2 * POLAR_HALF) * POLAR_N - 0.5, false);
+      h = f(d.polar.u16, POLAR_N, POLAR_N, (x + POLAR_HALF) / (2 * POLAR_HALF) * POLAR_N - 0.5, (POLAR_HALF - y) / (2 * POLAR_HALF) * POLAR_N - 0.5, false);
   }
-  return f(d.global.km, d.global.w, d.global.h, (lon + 180) * 8 - 0.5, (90 - lat) * 8 - 0.5, true);
+  if (h === undefined) h = f(d.global.u16, d.global.w, d.global.h, (lon + 180) * 8 - 0.5, (90 - lat) * 8 - 0.5, true);
+  if (!DETAIL.length) return h;
+  const a = lat * D2R, b = lon * D2R;
+  return withDetail(h, Math.cos(a) * Math.cos(b), Math.sin(a), -Math.cos(a) * Math.sin(b), 0, smooth);
 }
-export const hasDetailedData = lat => lat < -79.4;
+/**
+  elevKm() for a unit vector (x, y, z) in this file's frame, for loops that walk in 3D.
+  On the polar grid it needs no trig: the map position is (-2R z, 2R x) / (1 - y).
+  cellM: the grid the result will be drawn on (m), so a patch answers from a level no finer than that.
+*/
+export function elevAt(px, py, pz, smooth = false, cellM = 0) { return smooth ? elevAtSmooth(px, py, pz, cellM) : elevAtLinear(px, py, pz); }
+
+// ---------- finer NASA maps (real-ground.js patches) ----------
+const DETAIL = []; // coarsest first, so finer patches blend in last
+/** Use a patch from real-ground.js in every height lookup from now on. */
+export function addDetail(P) { if (!DETAIL.includes(P)) { DETAIL.push(P); DETAIL.sort((a, b) => b.scale - a.scale); } }
+/** Pixel size (m) of the finest NASA data at a unit vector: a patch's, else 625 (polar grid) or 3790 (global grid). */
+export function dataCellAt(px, py, pz) {
+  let cell = coarseCell(px, py, pz);
+  for (const P of DETAIL) { P.sample(px, py, pz, 0, false); if (P.w > 0.5) cell = Math.min(cell, P.scale); }
+  return cell;
+}
+function coarseCell(px, py, pz) {
+  if (py < SIN_75S) { const k = 2 * R_KM / (1 - py), x = -pz * k, y = px * k; if (Math.max(Math.abs(x), Math.abs(y)) < POLAR_HALF - 1) return 625; }
+  return Math.round(R_KM * 1000 * D2R / 8); // 1/8 degree of latitude
+}
+function withDetail(h, px, py, pz, cellM, smooth) {
+  for (let i = 0; i < DETAIL.length; i++) { const P = DETAIL[i], v = P.sample(px, py, pz, cellM, smooth); if (P.w > 0) h += (v / 1000 - h) * P.w; }
+  return h;
+}
+// Two copies, one per filter, so each hot loop calls a single function V8 can inline
+function elevAtLinear(px, py, pz) {
+  const d = DATA; let h;
+  if (py < SIN_75S) {
+    const k = 2 * R_KM / (1 - py), x = -pz * k, y = px * k;
+    if (Math.max(Math.abs(x), Math.abs(y)) < POLAR_HALF - 1)
+      h = bilinearPolar(d.polar.u16, (x + POLAR_HALF) / (2 * POLAR_HALF) * POLAR_N - 0.5, (POLAR_HALF - y) / (2 * POLAR_HALF) * POLAR_N - 0.5);
+  }
+  if (h === undefined) h = bilinear(d.global.u16, d.global.w, d.global.h, (Math.atan2(-pz, px) * R2D + 180) * 8 - 0.5, (90 - Math.asin(py) * R2D) * 8 - 0.5, true);
+  return DETAIL.length ? withDetail(h, px, py, pz, 0, false) : h;
+}
+function elevAtSmooth(px, py, pz, cellM = 0) {
+  const d = DATA; let h;
+  if (py < SIN_75S) {
+    const k = 2 * R_KM / (1 - py), x = -pz * k, y = px * k;
+    if (Math.max(Math.abs(x), Math.abs(y)) < POLAR_HALF - 1)
+      h = bicubic(d.polar.u16, POLAR_N, POLAR_N, (x + POLAR_HALF) / (2 * POLAR_HALF) * POLAR_N - 0.5, (POLAR_HALF - y) / (2 * POLAR_HALF) * POLAR_N - 0.5, false);
+  }
+  if (h === undefined) h = bicubic(d.global.u16, d.global.w, d.global.h, (Math.atan2(-pz, px) * R2D + 180) * 8 - 0.5, (90 - Math.asin(py) * R2D) * 8 - 0.5, true);
+  return DETAIL.length ? withDetail(h, px, py, pz, cellM, true) : h;
+}
 
 // ---------- frames ----------
 export function llToVec(lat, lon, out = new THREE.Vector3()) {
@@ -112,22 +186,35 @@ export function earthBlocksSun(d) {
   The result also carries .beyond: the skyline of terrain farther than beyondKm only, for the relief
   block, which draws the nearer ground itself. One pass fills both.
 */
+// Step distances (km) with the cosine and sine of each one's angle at the Moon's centre. Every azimuth walks
+// the same distances, so they are computed once per (from, to, cap).
+const SKY_STEPS = new Map();
+function skylineSteps(fromKm, toKm, cap) {
+  const key = `${fromKm}|${toKm}|${cap}`; let s = SKY_STEPS.get(key); if (s) return s;
+  const d = []; for (let x = fromKm; x < toKm; x += Math.min(0.02 * x, cap)) d.push(x);
+  s = { n: d.length, d: Float64Array.from(d), cg: Float64Array.from(d, x => Math.cos(x / R_KM)), sg: Float64Array.from(d, x => Math.sin(x / R_KM)) };
+  SKY_STEPS.set(key, s); return s;
+}
 export function realSkyline(lat, lon, { fromKm = 0.6, toKm = 260, eye = 0.002, beyondKm = Infinity } = {}) {
-  const f = localFrame(lat, lon), r0 = R_KM + elevKm(lat, lon) + eye, out = new Float32Array(360), beyond = new Float32Array(360);
+  const { up, east, north } = localFrame(lat, lon), r0 = R_KM + elevKm(lat, lon) + eye, out = new Float32Array(360), beyond = new Float32Array(360);
   // Step 2% of the distance: near the observer the angle changes fast, so steps must be short there.
   // Cap at half a grid cell so no peak falls between samples (625 m polar grid, about 3.8 km global grid).
-  const cap = lat < -75 ? 0.3 : 1.5;
+  const S = skylineSteps(fromKm, toKm, lat < -75 ? 0.3 : 1.5);
+  let kb = S.n; for (let i = 0; i < S.n; i++) if (S.d[i] >= beyondKm) { kb = i; break; }
   for (let az = 0; az < 360; az++) {
-    const s = Math.sin(az * D2R), c = Math.cos(az * D2R); let best = -90, far = -90;
-    for (let d = fromKm; d < toKm; d += Math.min(0.02 * d, cap)) {
-      // g: angle at the Moon's centre for d km along the surface. offsetLL steps along the level plane,
-      // so a step of R tan(g) lands exactly d km away.
-      const g = d / R_KM, t = R_KM * Math.tan(g), ll = offsetLL(f, s * t, c * t), r = R_KM + elevKm(ll.lat, ll.lon);
-      // the point's height above, and distance along, the observer's level plane
-      const e = Math.atan2(r * Math.cos(g) - r0, r * Math.sin(g)) * R2D;
-      if (e > best) best = e; if (d >= beyondKm && e > far) far = e;
+    const s = Math.sin(az * D2R), c = Math.cos(az * D2R);
+    // unit vector along the ground toward az. The point g radians away along the great circle is
+    // up cos g + dir sin g, the same point the old tangent-plane step R tan(g) reached after normalising.
+    const dx = s * east.x + c * north.x, dy = s * east.y + c * north.y, dz = s * east.z + c * north.z;
+    let best = -Infinity, far = -Infinity;
+    for (let i = 0; i < S.n; i++) {
+      const cg = S.cg[i], sg = S.sg[i], r = R_KM + elevAtLinear(up.x * cg + dx * sg, up.y * cg + dy * sg, up.z * cg + dz * sg);
+      // tangent of the angle above the observer's level plane. r sin g > 0, so the largest tangent is the
+      // largest angle and atan runs once per azimuth instead of once per step.
+      const q = (r * cg - r0) / (r * sg);
+      if (q > best) best = q; if (i >= kb && q > far) far = q;
     }
-    out[az] = best; beyond[az] = far;
+    out[az] = Math.atan(best) * R2D; beyond[az] = far === -Infinity ? -90 : Math.atan(far) * R2D;
   }
   out.beyond = beyond;
   return out;
@@ -285,35 +372,31 @@ export function createStars(n = 1600, radius = 900, seed = 7) {
 }
 
 // ---------- relief tiles ----------
-function noise2(seed) {
-  const p = new Float32Array(256 * 256); let s = seed >>> 0 || 1;
-  for (let i = 0; i < p.length; i++) { s = (s * 1664525 + 1013904223) >>> 0; p[i] = s / 4294967296; }
-  return (x, y) => { const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi, g = (a, b) => p[((b & 255) << 8) | (a & 255)];
-    const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
-    return g(xi, yi) * (1 - u) * (1 - v) + g(xi + 1, yi) * u * (1 - v) + g(xi, yi + 1) * (1 - u) * v + g(xi + 1, yi + 1) * u * v; };
+/** The block around (lat, lon): its size and local frame. Heights come from fieldHeight(); nothing is made up. */
+export function tileField(lat, lon, { sizeKm = 40 } = {}) { return { lat, lon, sizeKm, frame: localFrame(lat, lon) }; }
+/**
+  Height (km) at (x east, y north) km from the block centre: NASA heights (elevAt(), finest data loaded) with the
+  Moon's curvature. cellKm: the grid it will be drawn on, so patches answer from a level no finer than that.
+*/
+export function fieldHeight(F, x, y, cellKm = 0) {
+  const f = F.frame, sx = x / R_KM, sy = y / R_KM;
+  // offsetLL(): up + east x/R + north y/R, normalised the way Vector3.normalize() does it
+  let vx = f.up.x + f.east.x * sx + f.north.x * sy, vy = f.up.y + f.east.y * sx + f.north.y * sy, vz = f.up.z + f.east.z * sx + f.north.z * sy;
+  const k = 1 / (Math.sqrt(vx * vx + vy * vy + vz * vz) || 1); vx *= k; vy *= k; vz *= k;
+  return elevAtSmooth(vx, vy, vz, cellKm * 1000) - (x * x + y * y) / (2 * R_KM);
 }
 /**
-  Height grid around (lat, lon). Large shapes from LOLA, detail under ~2 km synthetic
-  (seeded fBm plus small craters), Moon curvature included.
-  Returns { n, sizeKm, km: Float32Array, min, max, frame }.
+  Height grid around (lat, lon) from NASA heights alone, Moon curvature included.
+  Returns { n, sizeKm, km: Float32Array, min, max, frame, field, cellM (pixel size of the data at the centre) }.
 */
-export function buildTile(lat, lon, { sizeKm = 40, n = 256, detail = 1 } = {}) {
-  const f = localFrame(lat, lon), km = new Float32Array(n * n), seed = Math.round((lat + 90) * 1000) * 7919 + Math.round((lon + 180) * 1000);
-  const nz = noise2(seed), cell = sizeKm / (n - 1);
-  let r = seed >>> 0; const rnd = () => (r = (r * 1664525 + 1013904223) >>> 0) / 4294967296;
-  const craters = []; for (let i = 0; i < 220 * detail; i++) { const rad = 0.12 + Math.pow(rnd(), 3) * 1.8; craters.push({ x: (rnd() - .5) * sizeKm, y: (rnd() - .5) * sizeKm, r: rad, d: rad * (.16 + rnd() * .06) }); }
+export function buildTile(lat, lon, { sizeKm = 40, n = 256 } = {}) {
+  const F = tileField(lat, lon, { sizeKm }), cell = sizeKm / (n - 1), h = sizeKm / 2, km = new Float32Array(n * n);
   let mn = 1e9, mx = -1e9;
-  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
-    const x = -sizeKm / 2 + i * cell, y = sizeKm / 2 - j * cell; // +x east, +y north, row 0 at north
-    const ll = offsetLL(f, x, y);
-    let h = elevKm(ll.lat, ll.lon, true) - (x * x + y * y) / (2 * R_KM);
-    if (detail) {
-      let a = .09, fr = 1 / 3.2; for (let o = 0; o < 5; o++) { h += (nz(x * fr + 31, y * fr + 17) - .5) * a; a *= .5; fr *= 2; }
-      for (const c of craters) { const dd = Math.hypot(x - c.x, y - c.y) / c.r; if (dd < 1.35) h += dd < 1 ? -c.d * (1 - dd * dd) : c.d * .25 * Math.exp(-((dd - 1) ** 2) / .02); }
-    }
-    km[j * n + i] = h; mn = Math.min(mn, h); mx = Math.max(mx, h);
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { // +x east, +y north, row 0 at north
+    const v = km[j * n + i] = fieldHeight(F, -h + i * cell, h - j * cell); if (v < mn) mn = v; if (v > mx) mx = v;
   }
-  return { n, sizeKm, km, min: mn, max: mx, frame: f, lat, lon };
+  const u = F.frame.up;
+  return { n, sizeKm, km, min: mn, max: mx, frame: F.frame, lat, lon, field: F, cellM: dataCellAt(u.x, u.y, u.z) };
 }
 
 const TILE_VS = /* glsl */`
@@ -430,39 +513,58 @@ function tileGeometry(n, size, base = true) {
   return [g, w];
 }
 
+/** The built-in site at (lat, lon) (within 30 m) whose NASA skyline has loaded (Lunar.useSkylines), or null. */
+export function builtinSite(lat, lon) {
+  const v = llToVec(lat, lon);
+  for (const s of L.SITES) if (s.data && Math.acos(Math.min(1, v.dot(llToVec(s.lat, s.lon)))) * R_KM < 0.03) return s;
+  return null;
+}
+
 /**
-  A relief block for one point. Returns { group, tile, site, setDate(d), sunLocal, dispose }.
+  A relief block for one point. Returns { group, tile, site, far, setDate(d), refresh(), sunLocal, dispose }.
   style: one of STYLES. sizeKm: block width. walls: draw cut sides.
+  Heights: NASA maps only (fieldHeight()). Skyline: a built-in site's own, ray-cast from 5 m data by
+  tools/build-sites.py; anywhere else realSkyline() over the finest data loaded. refresh() rebuilds both after a
+  finer patch arrives (addDetail()).
 */
 export function createRelief(lat, lon, { style = 'photo', sizeKm = 40, n = 256, exag = 1, walls = true, wallColor = 0x2a2a2c, name, study = false, studyInk = [0.42, 0.2, 0.16] } = {}) {
-  const tile = buildTile(lat, lon, { sizeKm, n });
-  const hd = new Uint16Array(n * n); for (let i = 0; i < hd.length; i++) hd[i] = THREE.DataUtils.toHalfFloat(tile.km[i] - tile.min);
-  const hTex = new THREE.DataTexture(hd, n, n, THREE.RedFormat, THREE.HalfFloatType); hTex.magFilter = hTex.minFilter = THREE.LinearFilter; hTex.needsUpdate = true;
-  const sky = realSkyline(lat, lon, { beyondKm: sizeKm * 0.55 }), far = sky.beyond;
-  const fd = new Uint16Array(360); for (let i = 0; i < 360; i++) fd[i] = THREE.DataUtils.toHalfFloat(far[i] * D2R);
-  const farTex = new THREE.DataTexture(fd, 360, 1, THREE.RedFormat, THREE.HalfFloatType); farTex.magFilter = farTex.minFilter = THREE.LinearFilter; farTex.wrapS = THREE.RepeatWrapping; farTex.needsUpdate = true;
-  const base = -1.2 - (tile.max - tile.min) * 0.15;
+  const builtin = builtinSite(lat, lon);
+  const hd = new Uint16Array(n * n), hTex = new THREE.DataTexture(hd, n, n, THREE.RedFormat, THREE.HalfFloatType); hTex.magFilter = hTex.minFilter = THREE.LinearFilter;
+  const fd = new Uint16Array(360), farTex = new THREE.DataTexture(fd, 360, 1, THREE.RedFormat, THREE.HalfFloatType); farTex.magFilter = farTex.minFilter = THREE.LinearFilter; farTex.wrapS = THREE.RepeatWrapping;
   const mkStudy = () => { const t = new THREE.DataTexture(new Uint8Array(n * n * 4).fill(255), n, n, THREE.RGBAFormat, THREE.UnsignedByteType); t.magFilter = t.minFilter = THREE.LinearFilter; t.needsUpdate = true; return t; };
   const studyTex = mkStudy(), studyTex2 = mkStudy();
-  const uniforms = { uH: { value: hTex }, uFar: { value: farTex }, uStudy: { value: studyTex }, uStudy2: { value: studyTex2 }, uStudyInk: { value: new THREE.Vector3(...studyInk) }, uSun: { value: new THREE.Vector3(0, 1, 0) }, uSize: { value: sizeKm }, uN: { value: n }, uExag: { value: exag }, uBase: { value: base }, uBlock: { value: 0 }, uWall: { value: new THREE.Color(wallColor) } };
+  const uniforms = { uH: { value: hTex }, uFar: { value: farTex }, uStudy: { value: studyTex }, uStudy2: { value: studyTex2 }, uStudyInk: { value: new THREE.Vector3(...studyInk) }, uSun: { value: new THREE.Vector3(0, 1, 0) }, uSize: { value: sizeKm }, uN: { value: n }, uExag: { value: exag }, uBase: { value: 0 }, uBlock: { value: 0 }, uWall: { value: new THREE.Color(wallColor) } };
   const defs = { STYLE: STYLES.indexOf(style) }; if (study) defs.STUDY = 1;
   const mat = new THREE.ShaderMaterial({ defines: defs, uniforms, vertexShader: TILE_VS, fragmentShader: TILE_FS, side: THREE.DoubleSide });
   mat.extensions = { derivatives: true };
   const [gTop, gWall] = tileGeometry(n, sizeKm, true);
   const wallMat = new THREE.ShaderMaterial({ defines: { STYLE: STYLES.indexOf(style), WALL: 1 }, uniforms, vertexShader: TILE_VS, fragmentShader: TILE_FS, side: THREE.DoubleSide });
   const group = new THREE.Group(); group.add(new THREE.Mesh(gTop, mat)); if (walls) group.add(new THREE.Mesh(gWall, wallMat));
-  const site = realSite(name || placeName(lat, lon).coords, lat, lon, sky);
+  const site = builtin
+    ? { id: builtin.id, name: name || builtin.name, short: builtin.short, lat, lon, group: builtin.group, horizon: builtin.horizon, elevKm: builtin.elevKm, builtin: true }
+    : realSite(name || placeName(lat, lon).coords, lat, lon, new Float32Array(360));
   const api = {
-    group, tile, site, uniforms, sunLocal: new THREE.Vector3(), earthLocal: new THREE.Vector3(),
-    far, studyTex,
+    group, tile: null, site, uniforms, sunLocal: new THREE.Vector3(), earthLocal: new THREE.Vector3(),
+    far: null, studyTex, builtin,
+    /** rebuild heights and skyline from the finest NASA data loaded now */
+    refresh() {
+      const tile = api.tile = buildTile(lat, lon, { sizeKm, n });
+      for (let i = 0; i < hd.length; i++) hd[i] = THREE.DataUtils.toHalfFloat(tile.km[i] - tile.min);
+      hTex.needsUpdate = true;
+      if (builtin) api.far = builtin.beyond;
+      else { const sky = realSkyline(lat, lon, { beyondKm: sizeKm * 0.55 }); api.far = sky.beyond; site.horizon = sky; site.elevKm = elevKm(lat, lon); }
+      for (let i = 0; i < 360; i++) fd[i] = THREE.DataUtils.toHalfFloat(api.far[i] * D2R);
+      farTex.needsUpdate = true;
+      uniforms.uBase.value = -1.2 - (tile.max - tile.min) * 0.15;
+    },
     /** fill the shadow-study texture: one bit per date, up to 8 dates */
     computeStudy(dates) {
-      const masks = dates.slice(0, 8).map(d => tileShadowMask(tile, far, api.toLocal(sunDir(d), new THREE.Vector3())));
+      const masks = dates.slice(0, 8).map(d => tileShadowMask(api.tile, api.far, api.toLocal(sunDir(d), new THREE.Vector3())));
       const a = studyTex.image.data, b = studyTex2.image.data; a.fill(255); b.fill(255);
       masks.forEach((m, k) => { const dst = k < 4 ? a : b, c = k % 4; for (let i = 0; i < m.length; i++) dst[i * 4 + c] = m[i] * 255; });
       studyTex.needsUpdate = studyTex2.needsUpdate = true;
     },
-    toLocal(dirMoon, out) { const f = tile.frame; return out.set(dirMoon.dot(f.east), dirMoon.dot(f.up), -dirMoon.dot(f.north)); },
+    toLocal(dirMoon, out) { const f = api.tile.frame; return out.set(dirMoon.dot(f.east), dirMoon.dot(f.up), -dirMoon.dot(f.north)); },
     setDate(d) {
       api.toLocal(sunDir(d), api.sunLocal);
       // Earth from the site itself, not the Moon's centre: parallax moves it up to 0.27 deg
@@ -472,6 +574,7 @@ export function createRelief(lat, lon, { style = 'photo', sizeKm = 40, n = 256, 
     },
     dispose() { hTex.dispose(); farTex.dispose(); mat.dispose(); wallMat.dispose(); gTop.dispose(); gWall.dispose(); },
   };
+  api.refresh();
   return api;
 }
 
@@ -488,8 +591,9 @@ export class Stage {
     this.renderer.setScissorTest(true);
     this.renderer.toneMapping = THREE.NoToneMapping;
     this.views = []; this.pending = false; this.bg = background; this._w = 0; this._h = 0; this._dpr = 0;
+    this.maxDpr = 2; // pixels per CSS pixel at most; a full-screen view may lower it
     const syncSize = () => {
-      const w = innerWidth, h = innerHeight, dpr = Math.min(2, devicePixelRatio || 1);
+      const w = innerWidth, h = innerHeight, dpr = Math.min(this.maxDpr, devicePixelRatio || 1);
       if (this._w !== w || this._h !== h || this._dpr !== dpr) {
         this._w = w; this._h = h; this._dpr = dpr;
         this.renderer.setPixelRatio(dpr);
@@ -501,12 +605,19 @@ export class Stage {
     // any scroll (window or an inner panel) or layout change moves view boxes
     document.addEventListener('scroll', () => this.request(), { passive: true, capture: true });
     this.ro = new ResizeObserver(() => this.request());
-    new MutationObserver(() => this.request()).observe(document.body, { childList: true, subtree: true, characterData: true });
+    // A DOM change can move a view without resizing it, so watch the DOM, but redraw only if a view's box
+    // really moved: hover text, pins and sky labels change the DOM on every pointer move.
+    const moved = () => this.views.some(v => {
+      const b = v.el.getBoundingClientRect(), r = v.rect;
+      return !r || b.left !== r.left || b.top !== r.top || b.width !== r.width || b.height !== r.height;
+    });
+    new MutationObserver(() => { if (!this.pending && moved()) this.request(); }).observe(document.body, { childList: true, subtree: true, characterData: true });
   }
   /** el: DOM element whose box is the viewport. controls: optional OrbitControls bound to el. */
   /** crop: optional () => [x0, x1] fractions of the element width to draw (for wipes). hidden views are skipped. */
-  add(el, scene, camera, { controls = null, clear = null, before = null, crop = null } = {}) {
-    const v = { el, scene, camera, controls, clear, before, crop, hidden: false }; this.views.push(v); this.ro.observe(el);
+  /** render: optional (renderer, view) => void that draws the view itself, in place of renderer.render(scene, camera). */
+  add(el, scene, camera, { controls = null, clear = null, before = null, crop = null, render = null } = {}) {
+    const v = { el, scene, camera, controls, clear, before, crop, render, hidden: false, rect: null }; this.views.push(v); this.ro.observe(el);
     if (controls) controls.addEventListener('change', () => this.request());
     this.request(); return v;
   }
@@ -516,7 +627,7 @@ export class Stage {
     this.pending = false; this._syncSize(); const r = this.renderer, H = innerHeight; let moving = false;
     r.setScissor(0, 0, innerWidth, H); r.setClearColor(0, 0); r.clear();
     for (const v of this.views) {
-      const b = v.el.getBoundingClientRect();
+      const b = v.rect = v.el.getBoundingClientRect();
       if (v.hidden || b.bottom < 0 || b.top > H || b.width < 2 || b.height < 2) continue;
       if (v.controls && v.controls.update()) moving = true;
       v.camera.aspect = b.width / b.height; v.camera.updateProjectionMatrix();
@@ -524,7 +635,7 @@ export class Stage {
       const [c0, c1] = v.crop ? v.crop() : [0, 1];
       r.setViewport(b.left, H - b.bottom, b.width, b.height); r.setScissor(b.left + b.width * c0, H - b.bottom, b.width * (c1 - c0), b.height);
       const c = v.clear ?? this.bg; if (c === 'transparent') r.setClearColor(0, 0); else r.setClearColor(c, 1); r.clear();
-      r.render(v.scene, v.camera);
+      if (v.render) v.render(r, v); else r.render(v.scene, v.camera);
     }
     if (moving) this.request();
   }
@@ -560,7 +671,7 @@ export function siteStats(site, date) {
       ? (ec.nowUp ? 'In view for 60+ d' : 'No signal for 60+ d')
       : (ec.nowUp ? `Signal lost in ${L.fmtHours(ec.hours)}` : `Signal back in ${L.fmtHours(ec.hours)}`),
     sunShare: Math.round(s.sunFrac * 100), earthShare: Math.round(s.earthFrac * 100), bothShare: Math.round(s.bothFrac * 100),
-    longestDark: L.fmtHours(s.longestDark), sunMargin: s.sun.margin, earthMargin: s.earth.margin, summary: s,
+    longestDark: L.fmtHours(s.longestDark), sunMargin: s.sun.margin, earthMargin: s.earth.margin, samples: s.samples, summary: s,
   };
 }
 

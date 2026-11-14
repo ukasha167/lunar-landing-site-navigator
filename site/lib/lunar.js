@@ -11,8 +11,10 @@
   Load the table before calling anything: await Lunar.loadEphemeris('data/ephemeris.json'),
   or Lunar.useEphemeris(json) when you already have it.
 
-  Skylines: the built-in sites carry a synthetic skyline, seeded so it is stable between reloads.
-  moon3d.js replaces it with a skyline ray-cast over LOLA heights for every picked place.
+  Skylines: every built-in site's skyline was ray-cast by tools/build-sites.py over NASA maps, from 5 m pixels near
+  the site out to 300 km, and ships in site/assets/sites/index.json. Load it with Lunar.useSkylines(json). Until
+  then, and for places that are not built in, a site's skyline is flat; moon3d.js ray-casts one over LOLA heights
+  for every picked place.
 
   No dependencies. Exposes window.Lunar.
 */
@@ -24,59 +26,48 @@
   const SYNODIC = 29.530589;       // mean days from sunrise to sunrise
   const SUN_R = 0.27, EARTH_R = 0.95; // typical apparent disc radius in deg, for drawing only
 
-  // Coordinates are approximate and for design work only.
+  // Landing points chosen by tools/build-sites.py (see its header); past landings as published.
   const SITES = [
-    { id: 'shk-a',   name: 'Shackleton rim, point A', short: 'Shackleton A', lat: -89.68, lon: -166.0, h: 1.9, rough: 1.1, group: 'South pole' },
-    { id: 'ridge',   name: 'Connecting ridge',        short: 'Conn. ridge',  lat: -89.45, lon: -137.3, h: 2.3, rough: 1.0, group: 'South pole' },
-    { id: 'degerl',  name: 'de Gerlache rim',         short: 'de Gerlache',  lat: -88.71, lon:  -68.7, h: 1.6, rough: 1.4, group: 'South pole' },
-    { id: 'malap',   name: 'Malapert massif',         short: 'Malapert',     lat: -85.99, lon:    2.9, h: 4.6, rough: 1.3, group: 'South pole' },
-    { id: 'nobile',  name: 'Nobile rim',              short: 'Nobile',       lat: -85.40, lon:   37.0, h: 1.0, rough: 2.2, group: 'South pole' },
-    { id: 'haworth', name: 'Haworth',                 short: 'Haworth',      lat: -86.90, lon:  -16.0, h: 0.4, rough: 3.0, group: 'South pole' },
-    { id: 'mouton',  name: 'Mons Mouton (IM-2)',      short: 'Mons Mouton',  lat: -84.80, lon:   29.2, h: 2.4, rough: 1.6, group: 'South pole' },
-    { id: 'ch3',     name: 'Shiv Shakti (Chandrayaan-3)', short: 'Shiv Shakti', lat: -69.37, lon: 32.32, h: 0.2, rough: 1.2, group: 'Past landing' },
-    { id: 'ce6',     name: "Chang'e-6, Apollo basin", short: "Chang'e-6",    lat: -41.64, lon: -153.99, h: 0.1, rough: 1.5, group: 'Past landing' },
-    { id: 'a11',     name: 'Tranquility Base (Apollo 11)', short: 'Apollo 11', lat: 0.674, lon: 23.473, h: 0.0, rough: 0.5, group: 'Past landing' },
+    // SITES:BEGIN written by tools/build-sites.py
+    { id: 'amundsen', name: "Amundsen Rim", short: "Amundsen rim", lat: -83.95748, lon: 70.39724, group: "Artemis III candidate regions" },
+    { id: 'nobile2', name: "Nobile Rim 2", short: "Nobile rim 2", lat: -83.72531, lon: 59.40771, group: "Artemis III candidate regions" },
+    { id: 'haworth', name: "Haworth", short: "Haworth", lat: -86.36748, lon: -23.23546, group: "Artemis III candidate regions" },
+    { id: 'faustini', name: "Faustini Rim A", short: "Faustini rim", lat: -87.77382, lon: 94.66427, group: "Artemis III candidate regions" },
+    { id: 'degerl2', name: "de Gerlache Rim 2", short: "de Gerlache 2", lat: -88.46512, lon: -67.84885, group: "Artemis III candidate regions" },
+    { id: 'ridge-ext', name: "Connecting Ridge Extension", short: "Ridge ext.", lat: -89.01041, lon: -94.64472, group: "Artemis III candidate regions" },
+    { id: 'ridge', name: "Connecting Ridge", short: "Conn. ridge", lat: -89.47485, lon: -137.44314, group: "Artemis III candidate regions" },
+    { id: 'nobile1', name: "Nobile Rim 1", short: "Nobile rim 1", lat: -85.54411, lon: 37.62518, group: "Artemis III candidate regions" },
+    { id: 'peak-shk', name: "Peak near Shackleton", short: "Peak nr Shackleton", lat: -88.8089, lon: 123.75606, group: "Artemis III candidate regions" },
+    { id: 'degerl', name: "de Gerlache Rim", short: "de Gerlache", lat: -88.6683, lon: -68.33296, group: "Artemis III candidate regions" },
+    { id: 'leibnitz', name: "Leibnitz Beta Plateau", short: "Leibnitz beta", lat: -85.41319, lon: 31.69247, group: "Artemis III candidate regions" },
+    { id: 'malap', name: "Malapert Massif", short: "Malapert", lat: -86.03359, lon: 3.07285, group: "Artemis III candidate regions" },
+    { id: 'kocher', name: "de Gerlache-Kocher Massif", short: "Kocher massif", lat: -85.82646, lon: -116.31613, group: "Artemis III candidate regions" },
+    { id: 'mouton', name: "Mons Mouton (IM-2)", short: "Mons Mouton", lat: -84.8, lon: 29.2, group: "Past landings" },
+    { id: 'ch3', name: "Shiv Shakti (Chandrayaan-3)", short: "Shiv Shakti", lat: -69.37, lon: 32.32, group: "Past landings" },
+    { id: 'ce6', name: "Chang'e-6, Apollo basin", short: "Chang'e-6", lat: -41.64, lon: -153.99, group: "Past landings" },
+    { id: 'a11', name: "Tranquility Base (Apollo 11)", short: "Apollo 11", lat: 0.674, lon: 23.473, group: "Past landings" },
+    // SITES:END
   ];
+  const flat = () => new Float32Array(360);
+  SITES.forEach(s => { s.horizon = flat(); });
 
-  function rng(seed) {
-    let a = seed >>> 0;
-    return () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a);
-      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
-  }
-  function hash(str) { let h = 2166136261; for (const c of str) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
-
-  // 360 one-degree bins of horizon elevation (deg). Built once per site.
-  function buildHorizon(site) {
-    const r = rng(hash(site.id + site.lat.toFixed(2) + site.lon.toFixed(2)));
-    const dip = 0.42 * Math.sqrt(2 * site.h / MOON_R_KM) * R2D; // tempered: far terrain fills some of the dip
-    const harm = [];
-    for (let k = 1; k <= 9; k++) harm.push({ k, a: site.rough * (r() * 0.9 + 0.1) / Math.pow(k, 0.85), p: r() * Math.PI * 2 });
-    const peaks = [];
-    const nPeaks = 1 + Math.floor(r() * 3);
-    for (let i = 0; i < nPeaks; i++) peaks.push({ az: r() * 360, hgt: 0.8 + r() * site.rough * 1.6, w: 5 + r() * 18 });
-    const out = new Float32Array(360);
-    let norm = 0; harm.forEach(h => norm += h.a);
-    for (let az = 0; az < 360; az++) {
-      let v = 0;
-      for (const h of harm) v += h.a * Math.cos(h.k * az * D2R + h.p);
-      v = v / norm * site.rough;
-      for (const p of peaks) { let d = Math.abs(az - p.az); d = Math.min(d, 360 - d); v += p.hgt * Math.exp(-(d * d) / (2 * p.w * p.w)); }
-      out[az] = v - dip;
-    }
-    return out;
+  /** Skylines from site/assets/sites/index.json: per site, elevation (deg) in equal azimuth steps from north, base64 int16 in 0.01 deg. */
+  function useSkylines(json) {
+    const dec = b64 => { const bin = atob(b64), a = new Int16Array(bin.length / 2);
+      for (let i = 0; i < a.length; i++) a[i] = (bin.charCodeAt(2 * i) | bin.charCodeAt(2 * i + 1) << 8) << 16 >> 16;
+      return Float32Array.from(a, v => v / 100); };
+    for (const s of SITES) { const e = json.sites[s.id]; if (e) { s.horizon = dec(e.skyline); s.beyond = dec(e.beyond); s.elevKm = e.elev_m / 1000; s.data = e; } }
   }
 
-  function prep(site) { if (!site.horizon) site.horizon = buildHorizon(site); return site; }
-  SITES.forEach(prep);
-
-  function makeSite({ name = 'Custom site', lat, lon, h = 0.5, rough = 1.5 }) {
+  function makeSite({ name = 'Custom site', lat, lon }) {
     lat = Math.max(-89.99, Math.min(89.99, lat));
-    return prep({ id: 'c' + lat.toFixed(3) + '_' + lon.toFixed(3), name, short: name, lat, lon, h, rough, group: 'Custom' });
+    return { id: 'c' + lat.toFixed(3) + '_' + lon.toFixed(3), name, short: name, lat, lon, group: 'Custom', horizon: flat() };
   }
 
+  // skyline height (deg) at azimuth az, linear between bins; any number of equal bins
   function horizonAt(site, az) {
-    const a = ((az % 360) + 360) % 360, i = Math.floor(a), f = a - i;
-    return site.horizon[i] * (1 - f) + site.horizon[(i + 1) % 360] * f;
+    const h = site.horizon, n = h.length, a = (((az % 360) + 360) % 360) * n / 360, i = Math.floor(a), f = a - i;
+    return h[i % n] * (1 - f) + h[(i + 1) % n] * f;
   }
 
   // ---------- ephemeris table ----------
@@ -228,7 +219,7 @@
   const fmtDT = d => d.toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
   const fmtDeg = (v, p = 2) => (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(p) + '°';
 
-  window.Lunar = { SITES, makeSite, horizonAt, sun, earth, subSolar, subEarth, sunVec, earthVec, sample, windows, summary, verdict,
+  window.Lunar = { SITES, makeSite, useSkylines, horizonAt, sun, earth, subSolar, subEarth, sunVec, earthVec, sample, windows, summary, verdict,
     hoursUntilChange, fmtHours, fmtDate, fmtDT, fmtDeg, SYNODIC, SUN_R, EARTH_R, SUN_RADIUS_KM, EARTH_RADIUS_KM, MOON_R_KM,
     loadEphemeris, useEphemeris, RANGE,
     site: id => SITES.find(s => s.id === id) };
