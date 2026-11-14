@@ -4,10 +4,10 @@
   Each prototype supplies its own look (shader style, colours) and its own layout.
 */
 import { THREE, OrbitControls, loadMoonData, createGlobe, createEarth, createSun, createStars, createRelief, createSkylineRing,
-  Stage, pickGlobe, onTap, sunDir, earthDir, llToVec, placeName, siteStats, earthBlocksSun, addDetail } from './moon3d.js?v=5';
-export * from './moon3d.js?v=5';
-import * as M3 from './moon3d.js?v=5';
-import { loadSiteIndex, dataAt, loadPatch } from './real-ground.js?v=4';
+  Stage, pickGlobe, onTap, sunDir, earthDir, llToVec, placeName, siteStats, earthBlocksSun, addDetail, removeDetail } from './moon3d.js?v=10';
+export * from './moon3d.js?v=10';
+import * as M3 from './moon3d.js?v=10';
+import { loadSiteIndex, dataAt, loadPatch, dropPatch, patchHolds } from './real-ground.js?v=5';
 export { dataAt };
 const L = window.Lunar;
 
@@ -36,6 +36,9 @@ export async function createApp(o) {
   const stage = new Stage({ background: opt.clear });
   const scene = new THREE.Scene();
   const globe = createGlobe(opt.style); scene.add(globe.mesh);
+  // a GPU that needs over 12 ms for its first frames gets the Moon's coarse shadows (the shadow loop is 70% of its cost)
+  stage.onSlow = () => { globe.setCoarseShadows(true); stage.request(); };
+  M3.whenFullColor()?.then(() => stage.request()); // the 4096 px colour map replaced the 1024 px one
   const earthR = opt.earthDist * Math.tan(0.95 * Math.PI / 180);
   const earth = createEarth({ radius: earthR, style: opt.earthStyle || (opt.style === 'photo' || opt.style === 'silver' ? 'photo' : opt.style) }); scene.add(earth.mesh);
   const sun = createSun(500, { color: opt.sunColor ?? 0xffffff }); scene.add(sun.mesh);
@@ -91,11 +94,19 @@ export async function createApp(o) {
     NASA block patch (44 km, 59 to 118 m per pixel) for a place, if a built-in site's patch holds it. Once loaded it joins
     every height lookup (addDetail), so the block and skyline of any place inside it use it too.
   */
-  const loaded = new Set();
+  const loaded = new Map(); // file -> { meta, P }
   const loadBlock = (lat, lon) => {
     const d = dataAt(lat, lon);
     if (!d.block || loaded.has(d.block.file)) return null;
-    return loadPatch(d.block, 'block').then(P => { addDetail(P); loaded.add(d.block.file); return P; });
+    return loadPatch(d.block, 'block').then(P => { addDetail(P); loaded.set(d.block.file, { meta: d.block, P }); return P; });
+  };
+  // Drop block patches that no open place lies inside. The open places' own heights never change: each keeps
+  // every patch that covers it. Without this, every site ever opened keeps its patch for the life of the page.
+  const releaseBlocks = () => {
+    for (const [file, { meta, P }] of loaded) {
+      if (app.places.some(q => patchHolds(meta, q.lat, q.lon))) continue;
+      removeDetail(P); dropPatch(file); loaded.delete(file);
+    }
   };
 
   /** Add a place. Returns the place. The page mounts its relief with mountRelief(place, el). */
@@ -118,9 +129,13 @@ export async function createApp(o) {
     }
     return p;
   };
+  // Sky objects and the skyline ring belong to one mounted view. Free their GPU buffers when the view goes,
+  // or every removed card leaves its stars, Sun disc and Earth in the renderer. The Earth texture is shared: keep it.
+  const freeOwn = p => { for (const o of p.own || []) { o.geometry.dispose(); o.material.dispose(); } p.own = null; };
   app.removePlace = p => {
-    if (p.view) stage.remove(p.view); p.relief.dispose();
+    if (p.view) stage.remove(p.view); freeOwn(p); p.relief.dispose();
     app.places = app.places.filter(q => q !== p); app.places.forEach((q, i) => q.index = i);
+    releaseBlocks();
     app.onChange(app); stage.request();
   };
 
@@ -129,8 +144,8 @@ export async function createApp(o) {
    view: 'orbit' (default, look at the block) or 'ground' (stand at the centre, 2 m eye height)
   */
   app.mountRelief = (p, el, { view = 'orbit', clear = opt.clear, sky = true, fov = 38, height = null, aim = 'sun' } = {}) => {
-    if (p.view) stage.remove(p.view);
-    p.viewMode = view;
+    if (p.view) stage.remove(p.view); freeOwn(p);
+    p.viewMode = view; p.own = [];
     app._updatePlace(p); // sun and earth vectors are needed to aim the camera
     const sc = new THREE.Scene(); sc.add(p.relief.group);
     const size = p.relief.tile.sizeKm, mid = (p.relief.tile.max - p.relief.tile.min) * 0.5;
@@ -139,7 +154,7 @@ export async function createApp(o) {
     if (view === 'ground') {
       const h0 = p.relief.tile.km[(p.relief.tile.n >> 1) * p.relief.tile.n + (p.relief.tile.n >> 1)] - p.relief.tile.min + (opt.eyeKm ?? 0.05);
       // terrain beyond the block, drawn as a ring at 70 km from the LOLA skyline
-      sc.add(createSkylineRing(p.relief.far, 70, h0, opt.ringColor ?? 0x2e2e2e));
+      const ring = createSkylineRing(p.relief.far, 70, h0, opt.ringColor ?? 0x2e2e2e); sc.add(ring); p.own.push(ring);
       const s = aim === 'earth' ? p.relief.earthLocal : p.relief.sunLocal; const az = Math.atan2(s.x, -s.z);
       ctl.target.set(Math.sin(az) * 0.01, h0, -Math.cos(az) * 0.01); cam.position.set(0, h0, 0);
       cam.position.set(-Math.sin(az) * 0.0001, h0, Math.cos(az) * 0.0001);
@@ -161,7 +176,8 @@ export async function createApp(o) {
       const sunM = new THREE.Mesh(new THREE.CircleGeometry(4000 * Math.tan(0.27 * Math.PI / 180), 40), new THREE.MeshBasicMaterial({ color: opt.sunColor ?? 0xffffff, toneMapped: false }));
       const em = createEarth({ radius: 4000 * Math.tan(0.95 * Math.PI / 180), style: opt.earthStyle || (opt.style === 'photo' || opt.style === 'silver' ? 'photo' : opt.style) });
       em.mesh.material.uniforms.uMap.value = app.earth.mesh.material.uniforms.uMap.value;
-      sc.add(sunM, em.mesh); if (opt.stars) sc.add(createStars(900, 6000, 3));
+      sc.add(sunM, em.mesh); p.own.push(sunM, em.mesh);
+      if (opt.stars) { const st = createStars(900, 6000, 3); sc.add(st); p.own.push(st); }
       p.skyObjs = { sun: sunM, earth: em.mesh, earthMesh: em };
     }
     p.camera = cam; p.controls = ctl; p.scene = sc;
