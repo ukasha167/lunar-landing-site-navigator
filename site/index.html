@@ -1,0 +1,785 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Landing coupons</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"}}</script>
+<style>
+  :root {
+    --bg: #111214;
+    --surface: #18191c;
+    --raised: #212328;
+    --raised-hover: #2a2d33;
+    --text: #eef0f5;
+    --text-2: #a5abb8;
+    --muted: #8b92a2;
+    --line: rgba(238, 240, 245, 0.08);
+    --line-strong: rgba(238, 240, 245, 0.16);
+    --ok: #4cc38a;
+    --ok-bg: rgba(76, 195, 138, 0.12);
+    --ok-border: rgba(76, 195, 138, 0.30);
+    --void: #f06568;
+    --void-bg: rgba(240, 101, 104, 0.12);
+    --void-border: rgba(240, 101, 104, 0.30);
+    --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 400 14px/1.45 Archivo, system-ui, sans-serif;
+    overflow: hidden;
+    caret-color: var(--text);
+    color-scheme: dark;
+  }
+  ::selection { background: var(--text); color: var(--bg); }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 4px; }
+
+  .wallet {
+    display: grid;
+    grid-template-columns: minmax(420px, 0.82fr) minmax(0, 1.18fr);
+    gap: 24px;
+    height: 100dvh;
+    padding: 20px 24px;
+  }
+  .map {
+    position: relative;
+    display: grid;
+    grid-template-rows: auto auto minmax(240px, 1fr) auto;
+    gap: 12px;
+    min-height: 0;
+  }
+  .intro h1 {
+    font: 600 20px/1.2 Archivo, system-ui, sans-serif;
+    margin: 0;
+  }
+  .intro p {
+    margin: 4px 0 0;
+    font-size: 13px;
+    color: var(--text-2);
+    max-width: 56ch;
+  }
+
+  .panel {
+    position: relative;
+    z-index: 3;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 12px 16px;
+    display: grid;
+    gap: 8px;
+  }
+  .picker-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+  }
+  .picker-row label,
+  .field label,
+  .slip-head span:first-child,
+  .hour-head label {
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 500;
+  }
+  .coord-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: end;
+  }
+  .field {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  select,
+  input[type="text"],
+  input[type="date"] {
+    width: 100%;
+    height: 36px;
+    padding: 0 12px;
+    border-radius: 8px;
+    border: 1px solid var(--line-strong);
+    background: var(--raised);
+    color: var(--text);
+    font: 400 13px Archivo, system-ui, sans-serif;
+    transition: border-color 140ms var(--ease), background-color 140ms var(--ease);
+  }
+  select {
+    line-height: 34px;
+    cursor: pointer;
+  }
+  .coord-form input[type="text"] {
+    padding: 0 10px;
+  }
+  input[type="text"],
+  input[type="date"] {
+    font-family: 'IBM Plex Mono', monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  input[type="date"] {
+    text-align: center;
+  }
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    opacity: 0.72;
+    cursor: pointer;
+  }
+  input[type="text"]::placeholder {
+    color: var(--muted);
+  }
+  select:hover,
+  input[type="text"]:hover,
+  input[type="date"]:hover {
+    border-color: rgba(238, 240, 245, 0.28);
+  }
+  select:focus-visible,
+  input[type="text"]:focus-visible,
+  input[type="date"]:focus-visible,
+  input[type="range"]:focus-visible,
+  button:focus-visible {
+    outline: 2px solid var(--text);
+    outline-offset: 2px;
+  }
+  .err {
+    font-size: 12px;
+    color: var(--void);
+  }
+
+  .globe {
+    position: relative;
+    min-height: 220px;
+    cursor: grab;
+  }
+  .globe:active {
+    cursor: grabbing;
+  }
+  #pins {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 3;
+  }
+  .pin {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 24px;
+    height: 24px;
+    margin: -12px 0 0 -12px;
+    border-radius: 50%;
+    background: var(--text);
+    color: var(--bg);
+    font: 600 12px/24px 'IBM Plex Mono', monospace;
+    text-align: center;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
+  }
+  .pin[hidden] {
+    display: block;
+    opacity: 0;
+  }
+
+  .slip-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+  }
+  .slip-head .w {
+    font: 500 15px/1.2 'IBM Plex Mono', monospace;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  .date-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+  }
+  .hour-row {
+    display: grid;
+    gap: 6px;
+  }
+  .hour-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .hour-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .hour-right output {
+    font: 500 13px/1 'IBM Plex Mono', monospace;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 24px;
+    margin: 0;
+    background: transparent;
+    cursor: pointer;
+  }
+  input[type="range"]::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 2px;
+    background: linear-gradient(
+      to right,
+      var(--text) 0%,
+      var(--text) var(--pct, 25%),
+      var(--line-strong) var(--pct, 25%),
+      var(--line-strong) 100%
+    );
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    margin-top: -6px;
+    border-radius: 50%;
+    background: var(--text);
+    border: 2px solid var(--surface);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  }
+  input[type="range"]::-moz-range-track {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--line-strong);
+  }
+  input[type="range"]::-moz-range-progress {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--text);
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--text);
+    border: 2px solid var(--surface);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  }
+
+  button {
+    font: 500 13px Archivo, system-ui, sans-serif;
+    color: var(--text);
+    background: var(--raised);
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
+    height: 36px;
+    padding: 0 12px;
+    cursor: pointer;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: background-color 140ms var(--ease), border-color 140ms var(--ease), transform 140ms var(--ease);
+  }
+  button:hover {
+    background: var(--raised-hover);
+  }
+  button:active {
+    transform: scale(0.97);
+  }
+  button.go {
+    background: var(--text);
+    color: var(--bg);
+    border-color: var(--text);
+  }
+  button.go:hover {
+    background: #ffffff;
+  }
+  button.sm {
+    height: 28px;
+    padding: 0 10px;
+    font-size: 12px;
+    border-radius: 6px;
+  }
+  button svg,
+  .badge svg {
+    width: 16px;
+    height: 16px;
+    flex: none;
+  }
+
+  .rule {
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  .stack {
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding-right: 4px;
+    min-height: 0;
+  }
+  .coupon {
+    flex: none;
+    display: grid;
+    grid-template-columns: 200px minmax(0, 1fr);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .stub {
+    position: relative;
+    aspect-ratio: 1;
+    cursor: grab;
+    border-right: 1px dashed var(--line-strong);
+    background: #141518;
+  }
+  .stub:active {
+    cursor: grabbing;
+  }
+  .body {
+    padding: 16px 20px;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px 16px;
+    align-content: start;
+  }
+  .head {
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--line);
+  }
+  .head-title {
+    min-width: 0;
+  }
+  .head-title b {
+    display: block;
+    font: 600 16px/1.25 Archivo, system-ui, sans-serif;
+    color: var(--text);
+  }
+  .head-title .coords {
+    display: block;
+    margin-top: 2px;
+    font: 400 12px/1.3 'IBM Plex Mono', monospace;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .head-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+    flex-wrap: wrap;
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 32px;
+    padding: 4px 10px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    font: 400 12px/1.3 Archivo, system-ui, sans-serif;
+  }
+  .badge b {
+    font-weight: 600;
+  }
+  .badge.ok {
+    color: var(--ok);
+    background: var(--ok-bg);
+    border-color: var(--ok-border);
+  }
+  .badge.void {
+    color: var(--void);
+    background: var(--void-bg);
+    border-color: var(--void-border);
+  }
+  .x {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    color: var(--text-2);
+    border-color: var(--line-strong);
+    background: transparent;
+  }
+  .x:hover {
+    background: var(--raised);
+    color: var(--text);
+  }
+
+  .f span {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .f b {
+    display: block;
+    margin-top: 2px;
+    font: 500 13px/1.35 'IBM Plex Mono', monospace;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  .hist {
+    grid-column: 1 / -1;
+    padding-top: 8px;
+    border-top: 1px solid var(--line);
+    font: 400 12px/1.45 'IBM Plex Mono', monospace;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .hist s {
+    color: var(--void);
+  }
+  .new {
+    flex: none;
+    border: 1px dashed var(--line-strong);
+    border-radius: 12px;
+    padding: 20px;
+    color: var(--muted);
+    text-align: center;
+    font-size: 13px;
+  }
+
+  @media (max-width: 1120px) {
+    .body { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 960px) {
+    body { overflow: auto; }
+    .wallet { grid-template-columns: 1fr; height: auto; padding: 16px; gap: 16px; }
+    .globe { height: 55dvh; min-height: 320px; }
+    .stack { overflow: visible; padding-right: 0; }
+  }
+  @media (max-width: 600px) {
+    .coupon { grid-template-columns: 1fr; }
+    .stub { border-right: 0; border-bottom: 1px dashed var(--line-strong); max-height: 280px; }
+    .coord-form { grid-template-columns: 1fr 1fr; }
+    .coord-form button { grid-column: 1 / -1; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="wallet">
+  <section class="map">
+    <div class="intro">
+      <h1>Landing coupons</h1>
+      <p>Click any point on the Moon or enter coordinates to issue a coupon. Change the date or hour to check every coupon again.</p>
+    </div>
+
+    <div class="panel picker">
+      <div class="picker-row">
+        <label for="preset-site">Known site</label>
+        <select id="preset-site">
+          <option value="">Select a lunar site</option>
+        </select>
+      </div>
+      <form id="coord-form" class="coord-form" novalidate>
+        <div class="field">
+          <label for="lat-in">Lat (°)</label>
+          <input id="lat-in" type="text" inputmode="decimal" autocomplete="off" placeholder="-89.5 / 89.5S">
+        </div>
+        <div class="field">
+          <label for="lon-in">Lon (°)</label>
+          <input id="lon-in" type="text" inputmode="decimal" autocomplete="off" placeholder="-137 / 137W">
+        </div>
+        <button type="submit" class="go">Set marker</button>
+      </form>
+      <div class="err" id="coord-err" role="alert" hidden></div>
+    </div>
+
+    <div class="globe" id="globe" aria-label="The Moon. Drag to turn. Click a point to issue a coupon.">
+      <div id="pins"></div>
+    </div>
+
+    <div class="panel slip">
+      <div class="slip-head">
+        <span>Landing time</span>
+        <span class="w" id="when"></span>
+      </div>
+      <div class="date-row">
+        <button type="button" id="prev-day" aria-label="Previous day">
+          <i data-lucide="chevron-left" aria-hidden="true"></i>
+          <span>Prev day</span>
+        </button>
+        <input type="date" id="date-picker" aria-label="Landing date in UTC">
+        <button type="button" id="next-day" aria-label="Next day">
+          <span>Next day</span>
+          <i data-lucide="chevron-right" aria-hidden="true"></i>
+        </button>
+      </div>
+      <div class="hour-row">
+        <div class="hour-head">
+          <label for="hour-slider">UTC hour</label>
+          <div class="hour-right">
+            <output id="hour-val" for="hour-slider">06:00 UTC</output>
+            <button type="button" id="slip-6h" class="sm">+6 h slip</button>
+          </div>
+        </div>
+        <input type="range" id="hour-slider" min="0" max="1435" step="5" value="360" aria-label="Hour of day in UTC">
+      </div>
+      <div class="rule" id="rule"></div>
+    </div>
+  </section>
+
+  <section class="stack" id="stack" aria-label="Issued landing coupons"></section>
+</div>
+
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<script src="lib/lunar.js"></script>
+<script type="module">
+import { createApp, fmtWhen } from './lib/app3d.js';
+
+const $ = id => document.getElementById(id), L = window.Lunar;
+const coupons = new Map(), history = new Map();
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// The team's own rule lives in Lunar.verdict(). Until it is written, this page uses a stand-in rule.
+const STANDIN = 'Stand-in rule: Sun up and Earth in view at landing, with at least 2 d of light. Terrain under 2 km is synthetic.';
+function check(p) {
+  const v = L.verdict(p.stats.summary);
+  if (v) return { ok: v.level === 'go', why: v.reason };
+  const s = p.stats;
+  if (!s.sunUp) return { ok: false, why: 'lands in shadow' };
+  if (!s.earthUp) return { ok: false, why: 'no Earth at landing' };
+  if (s.summary.sunChange.hours < 48) return { ok: false, why: `dark ${L.fmtHours(s.summary.sunChange.hours)} after landing` };
+  return { ok: true, why: isFinite(s.summary.sunChange.hours) ? `${L.fmtHours(s.summary.sunChange.hours)} of light` : '60+ d of light' };
+}
+
+function populatePresets() {
+  const sel = $('preset-site');
+  const groups = new Map();
+  for (const s of L.SITES) {
+    if (!groups.has(s.group)) groups.set(s.group, []);
+    groups.get(s.group).push(s);
+  }
+  for (const [label, sites] of groups) {
+    const og = document.createElement('optgroup');
+    og.label = label;
+    for (const s of sites) {
+      const latS = `${Math.abs(s.lat).toFixed(2)}°${s.lat < 0 ? 'S' : 'N'}`;
+      const lonS = `${Math.abs(s.lon).toFixed(2)}°${s.lon < 0 ? 'W' : 'E'}`;
+      og.append(new Option(`${s.name} (${latS} ${lonS})`, s.id));
+    }
+    sel.append(og);
+  }
+}
+populatePresets();
+
+function parseCoord(raw, posDir, negDir, maxAbs) {
+  const s = String(raw || '').trim().toUpperCase().replace(/°/g, '');
+  if (!s) return null;
+  const m = s.match(/^([+-]?\d+(?:\.\d+)?)\s*([NSEW])?$/);
+  if (!m) return null;
+  let val = Number(m[1]);
+  if (!Number.isFinite(val)) return null;
+  const dir = m[2];
+  if (dir) {
+    if (dir !== posDir && dir !== negDir) return null;
+    val = dir === negDir ? -Math.abs(val) : Math.abs(val);
+  }
+  if (Math.abs(val) > maxAbs) return null;
+  return val;
+}
+
+function syncTimeControls(d) {
+  $('when').textContent = fmtWhen(d).replace(', ', '  ');
+  $('date-picker').value = L.fmtDate(d);
+  const mins = d.getUTCHours() * 60 + d.getUTCMinutes();
+  const slider = $('hour-slider');
+  slider.value = String(mins);
+  slider.style.setProperty('--pct', `${(mins / 1435 * 100).toFixed(2)}%`);
+  $('hour-val').textContent = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`;
+}
+
+const app = await createApp({
+  globeEl: $('globe'),
+  style: 'photo',
+  clear: 0x111214,
+  maxPlaces: 3,
+  wallColor: 0x22242a,
+  start: [
+    { lat: -89.45, lon: -137.3, name: 'Connecting ridge' },
+    { lat: -88.71, lon: -68.7, name: 'de Gerlache rim' },
+  ],
+  onPick: p => {
+    $('preset-site').value = '';
+    $('lat-in').value = p.lat.toFixed(2);
+    $('lon-in').value = p.lon.toFixed(2);
+    $('coord-err').hidden = true;
+  },
+  onChange: (a, meta) => {
+    syncTimeControls(a.date);
+    render(a, !meta?.fast);
+  },
+  onRender: a => pins(a),
+});
+
+if (app.dateRange) {
+  $('date-picker').min = L.fmtDate(app.dateRange.start);
+  $('date-picker').max = L.fmtDate(app.dateRange.end);
+}
+$('rule').textContent = L.verdict({ sun: {}, earth: {}, sunChange: {}, earthChange: {} }) === null
+  ? STANDIN
+  : 'Checked with the team rule in lunar.js. Terrain under 2 km is synthetic.';
+
+function render(a, recordHistory = true) {
+  for (const [id, el] of coupons) {
+    if (!a.places.find(p => p.id === id)) {
+      el.remove();
+      coupons.delete(id);
+    }
+  }
+  a.places.forEach((p, i) => {
+    let el = coupons.get(p.id);
+    if (!el) {
+      el = document.createElement('article');
+      el.className = 'coupon';
+      el.innerHTML = `<div class="stub" aria-label="Ground at ${esc(p.name)}. Drag to turn."></div><div class="body"></div>`;
+      $('stack').append(el);
+      coupons.set(p.id, el);
+      history.set(p.id, []);
+      a.mountRelief(p, el.querySelector('.stub'), { clear: 0x141518 });
+    }
+    const s = p.stats, c = check(p), h = history.get(p.id), key = a.date.getTime();
+    if (recordHistory && (!h.length || h[h.length - 1].t !== key)) {
+      h.push({ t: key, ok: c.ok });
+    }
+    const prior = h.slice(0, -1).slice(-3).map(x => {
+      const label = fmtWhen(new Date(x.t)).slice(0, -4);
+      return x.ok ? label : `<s>${label}</s>`;
+    }).join(', ');
+
+    const letter = 'ABC'[i];
+    const badgeIcon = c.ok ? 'check' : 'alert-circle';
+    const badgeLabel = c.ok ? 'Valid' : 'Not valid';
+    el.querySelector('.body').innerHTML = `
+      <div class="head">
+        <div class="head-title">
+          <b>${letter}. ${esc(p.name)}</b>
+          <span class="coords">${esc(p.coords)}</span>
+        </div>
+        <div class="head-actions">
+          <div class="badge ${c.ok ? 'ok' : 'void'}">
+            <i data-lucide="${badgeIcon}" aria-hidden="true"></i>
+            <span><b>${badgeLabel}</b> · ${esc(c.why)}</span>
+          </div>
+          <button type="button" class="x" aria-label="Remove coupon ${esc(p.name)}"><i data-lucide="x" aria-hidden="true"></i></button>
+        </div>
+      </div>
+      <div class="f"><span>Light at landing</span><b>${s.sunUp ? 'Sunlit' : 'Shadow'}</b></div>
+      <div class="f"><span>Sun window</span><b>${esc(s.sunText)}</b></div>
+      <div class="f"><span>Lit over lunar day</span><b>${s.sunShare}%</b></div>
+      <div class="f"><span>Signal at landing</span><b>${s.earthUp ? 'Earth in view' : 'No Earth'}</b></div>
+      <div class="f"><span>Earth window</span><b>${esc(s.earthText)}</b></div>
+      <div class="f"><span>Longest night</span><b>${esc(s.longestDark)}</b></div>
+      ${prior ? `<div class="hist">Earlier landing times: ${prior}</div>` : ''}`;
+    el.querySelector('.x').onclick = () => {
+      history.delete(p.id);
+      a.removePlace(p);
+    };
+  });
+  $('stack').querySelector('.new')?.remove();
+  if (a.places.length < 3) {
+    $('stack').insertAdjacentHTML('beforeend', `<div class="new">Click the Moon or set coordinates to issue another coupon</div>`);
+  }
+  lucide.createIcons({ attrs: { 'stroke-width': 1.5 } });
+}
+
+function pins(a) {
+  const box = $('pins');
+  if (box.children.length !== a.places.length) {
+    box.innerHTML = a.places.map(() => '<div class="pin"></div>').join('');
+  }
+  a.places.forEach((p, i) => {
+    const q = a.project(p.lat, p.lon), el = box.children[i];
+    el.textContent = 'ABC'[i];
+    el.style.transform = `translate(${q.x}px, ${q.y}px)`;
+    el.hidden = !q.visible;
+  });
+}
+
+function setMarker(lat, lon, name) {
+  const existing = app.places.find(p => Math.abs(p.lat - lat) < 0.005 && Math.abs(p.lon - lon) < 0.005);
+  if (!existing) app.addPlace(lat, lon, name);
+  app.focus(lat, lon, 4.4);
+}
+
+$('preset-site').onchange = e => {
+  const s = L.site(e.target.value);
+  if (!s) return;
+  $('coord-err').hidden = true;
+  $('lat-in').value = s.lat.toFixed(2);
+  $('lon-in').value = s.lon.toFixed(2);
+  setMarker(s.lat, s.lon, s.name);
+};
+
+$('coord-form').onsubmit = e => {
+  e.preventDefault();
+  const lat = parseCoord($('lat-in').value, 'N', 'S', 90);
+  const lon = parseCoord($('lon-in').value, 'E', 'W', 180);
+  const errEl = $('coord-err');
+  if (lat === null || lon === null) {
+    errEl.textContent = 'Enter latitude from -90° to 90° and longitude from -180° to 180°';
+    errEl.hidden = false;
+    return;
+  }
+  errEl.hidden = true;
+  $('preset-site').value = '';
+  setMarker(lat, lon);
+};
+
+$('prev-day').onclick = () => app.setDate(new Date(app.date.getTime() - 24 * 36e5));
+$('next-day').onclick = () => app.setDate(new Date(app.date.getTime() + 24 * 36e5));
+$('slip-6h').onclick = () => app.setDate(new Date(app.date.getTime() + 6 * 36e5));
+
+$('date-picker').onchange = e => {
+  const parts = e.target.value.split('-').map(Number);
+  if (parts.length !== 3 || parts.some(Number.isNaN)) return;
+  const [y, m, day] = parts;
+  const next = new Date(Date.UTC(y, m - 1, day, app.date.getUTCHours(), app.date.getUTCMinutes()));
+  app.setDate(next);
+};
+
+function dateAtMinute(mins) {
+  const d = app.date;
+  const hh = Math.floor(mins / 60), mm = mins % 60;
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), hh, mm));
+}
+
+$('hour-slider').oninput = e => {
+  const mins = Number(e.target.value);
+  app.setDate(dateAtMinute(mins), { fast: true });
+};
+
+$('hour-slider').onchange = e => {
+  const mins = Number(e.target.value);
+  app.setDate(dateAtMinute(mins), { fast: false });
+};
+
+lucide.createIcons({ attrs: { 'stroke-width': 1.5 } });
+</script>
+</body>
+</html>
