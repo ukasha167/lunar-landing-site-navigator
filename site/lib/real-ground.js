@@ -15,7 +15,7 @@
 */
 const R_M = 1737400, R2D = 180 / Math.PI;
 let indexPromise = null, indexData = null;
-const cache = new Map();
+const cache = new Map(), fineFiles = new Set();
 
 async function bytes(url) { const r = await fetch(url); if (r.ok === false) throw new Error(`${url}: HTTP ${r.status}`); return r.arrayBuffer(); }
 async function gunzip(buf) { return new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer(); }
@@ -134,9 +134,19 @@ function makePatch(meta, kind, h) {
 /** Load and decode one patch (cached). kind: 'block' or 'fine'. */
 export function loadPatch(meta, kind, base = 'assets/') {
   let p = cache.get(meta.file);
-  if (!p) { p = bytes(base + 'sites/' + meta.file).then(gunzip).then(buf => makePatch(meta, kind, decode(meta, buf))); cache.set(meta.file, p); p.catch(() => cache.delete(meta.file)); }
+  if (!p) {
+    // a decoded 5 m patch is about 35 MB of heights: keep only the one used last (the rover opens one place at a time)
+    if (kind === 'fine') for (const f of fineFiles) if (f !== meta.file) { cache.delete(f); fineFiles.delete(f); }
+    p = bytes(base + 'sites/' + meta.file).then(gunzip).then(buf => makePatch(meta, kind, decode(meta, buf))); cache.set(meta.file, p);
+    if (kind === 'fine') fineFiles.add(meta.file);
+    p.catch(() => { cache.delete(meta.file); fineFiles.delete(meta.file); });
+  }
   return p;
 }
+/** Forget a decoded patch, so its memory can be freed once nothing else holds it. */
+export function dropPatch(file) { cache.delete(file); fineFiles.delete(file); }
+/** Does the patch cover (lat, lon)? From the index alone. */
+export const patchHolds = (meta, lat, lon) => holds(meta, lat, lon, 0);
 
 // is (lat, lon) inside the patch, at least marginM from its edge? (from the index alone, nothing loaded)
 function holds(meta, lat, lon, marginM) {
