@@ -34,7 +34,7 @@
 let THREE, OrbitControls, createEarth, createStars, createSkylineRing;
 import { createVehicle, WHEELS, REST, COM } from './rover-physics.js?v=4';
 import { buildRover } from './rover-model.js?v=2';
-import { loadRealGround } from './real-ground.js?v=4';
+import { loadRealGround } from './real-ground.js?v=5';
 import { createTracks, createDust, createDynamicResolution, TRK_M } from './rover-fx.js?v=4';
 
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
@@ -297,35 +297,55 @@ const CSS = `
   .rover-view:active { cursor: grabbing; }
   .rover-hud { position: fixed; inset: 0; z-index: 6; pointer-events: none; color: var(--text); font: 400 14px/1.4 Archivo, system-ui, sans-serif; }
   .rover-hud .card { pointer-events: auto; background: rgba(17, 18, 20, 0.84); border: 1px solid var(--line-strong); border-radius: 12px; }
-  .rv-top { position: absolute; top: 16px; left: 16px; right: 16px; display: flex; align-items: flex-start; gap: 12px; }
-  .rv-id { display: flex; align-items: center; gap: 10px; padding: 10px 12px; }
-  .rv-name { font-weight: 500; font-size: 16px; }
-  .rv-note { font-size: 12px; color: var(--muted); }
-  .rv-time { display: flex; align-items: center; gap: 4px; padding: 6px; margin-left: auto; font: 500 14px 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums; }
-  .rv-time span { padding: 0 6px; }
-  .rv-exit { pointer-events: auto; background: rgba(24, 25, 28, 0.88); }
-  .rv-bottom { position: absolute; left: 16px; bottom: 16px; display: flex; align-items: flex-end; gap: 12px; }
-  .rv-panel { padding: 12px 14px; display: grid; gap: 6px; min-width: 300px; }
-  .rover-hud .rv-map { position: relative; width: 220px; height: 220px; flex: none; background: transparent; overflow: hidden; }
+  /* glass: the quiet pill look shared by the corner controls, so the ground stays the main thing on screen */
+  .rv-glass { pointer-events: auto; background: rgba(14, 15, 18, 0.48); border: 1px solid rgba(238, 240, 245, 0.13); border-radius: 999px; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+  .rv-top { position: absolute; top: 22px; left: 24px; right: 24px; display: flex; align-items: center; gap: 10px; }
+  .rv-id { display: inline-flex; align-items: center; gap: 8px; padding: 5px 7px; min-width: 0; }
+  .rv-id .letter { width: 22px; height: 22px; font-size: 11px; line-height: 22px; }
+  .rv-name { font-weight: 500; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rover-hud .rv-dot { width: 22px; height: 22px; padding: 0; border-radius: 50%; flex: none; color: var(--text-2); background: rgba(255, 255, 255, 0.06); border-color: rgba(238, 240, 245, 0.14); }
+  .rover-hud .rv-dot .ic { width: 14px; height: 14px; }
+  .rv-time { display: inline-flex; align-items: center; gap: 3px; padding: 3px; margin-left: auto; font: 500 12.5px 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums; }
+  .rv-time span { padding: 0 5px; }
+  .rover-hud .rv-time button, .rover-hud .rv-exit { height: 26px; padding: 0 9px; border-radius: 999px; font-size: 12px; color: var(--text-2); background: rgba(255, 255, 255, 0.04); border-color: rgba(238, 240, 245, 0.12); }
+  .rover-hud .rv-exit { height: 32px; padding: 0 12px; }
+  .rover-hud .rv-time button:hover, .rover-hud .rv-exit:hover, .rover-hud .rv-dot:hover, .rover-hud .rv-dot[aria-expanded="true"] { color: var(--text); background: rgba(255, 255, 255, 0.14); }
+  .rv-bottom { position: absolute; left: 24px; bottom: 24px; display: flex; align-items: flex-end; gap: 14px; }
+  /* fixed size: a status turning red changes a colour and a word, never the panel's shape */
+  .rv-panel { width: 260px; padding: 10px 12px; display: grid; gap: 8px; }
+  .rv-pills { display: flex; align-items: center; gap: 6px; }
+  .rv-pill { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px; border-radius: 999px; font-size: 12px; white-space: nowrap; color: var(--text-2); background: rgba(255, 255, 255, 0.04); border: 1px solid var(--line); transition: color 160ms, background-color 160ms, border-color 160ms; }
+  .rv-pill i { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--ok); }
+  .rv-pill.bad { color: var(--void); background: rgba(240, 101, 104, 0.10); border-color: rgba(240, 101, 104, 0.40); }
+  .rv-pill.bad i { background: var(--void); }
+  .rover-hud .rv-specs { height: 24px; padding: 0 9px; margin-left: auto; border-radius: 999px; font-size: 12px; color: var(--text-2); background: transparent; border-color: var(--line-strong); }
+  .rover-hud .rv-specs:hover, .rover-hud .rv-specs[aria-expanded="true"] { color: var(--text); background: rgba(255, 255, 255, 0.08); }
+  .rv-stats { font: 400 12.5px 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rv-stats .warn { color: var(--warn); }
+  .rover-hud .rv-map { position: relative; width: 192px; height: 192px; flex: none; background: transparent; overflow: hidden; border-radius: 14px; }
   .rv-map-gl { position: absolute; inset: 0; }
   .rv-map svg { position: absolute; inset: 0; width: 100%; height: 100%; }
   .rv-map-n { font: 600 11px Archivo, system-ui, sans-serif; fill: var(--text); paint-order: stroke; stroke: #000; stroke-width: 3px; }
   .rv-map-zoom { position: absolute; right: 6px; top: 6px; display: grid; gap: 4px; }
-  .rv-map-zoom button { width: 26px; height: 26px; padding: 0; justify-content: center; background: rgba(24, 25, 28, 0.88); }
-  .rv-map-scale { position: absolute; left: 8px; bottom: 15px; font: 500 11px 'IBM Plex Mono', monospace; color: var(--text); text-shadow: 0 0 3px #000, 0 0 3px #000; }
+  .rv-map-zoom button { width: 24px; height: 24px; padding: 0; justify-content: center; background: rgba(24, 25, 28, 0.88); }
+  .rv-map-scale { position: absolute; left: 8px; bottom: 14px; font: 500 11px 'IBM Plex Mono', monospace; color: var(--text); text-shadow: 0 0 3px #000, 0 0 3px #000; }
   .rv-map-mark { position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px; color: var(--text); filter: drop-shadow(0 0 2px #000); display: grid; place-items: center; }
   .rv-map-mark .ic { width: 16px; height: 16px; }
   .rv-map-mark.off { opacity: 0.35; }
-  .rv-line { display: flex; align-items: center; gap: 8px; font-size: 15px; }
-  .rv-line.off { color: var(--muted); }
-  .rv-line.off .ic { color: var(--void); }
-  .rv-stats { font: 400 13px 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums; color: var(--text-2); }
-  .rv-data { font-size: 13px; color: var(--muted); }
-  .rv-keys { position: absolute; right: 16px; bottom: 16px; padding: 10px 12px; font-size: 13px; color: var(--text-2); max-width: min(420px, calc(100vw - 640px)); }
-  .rv-keys kbd { font: 500 12px 'IBM Plex Mono', monospace; padding: 1px 5px; border: 1px solid var(--line-strong); border-radius: 4px; color: var(--text); }
-  .rv-msg { position: absolute; top: 84px; left: 50%; transform: translateX(-50%); padding: 6px 12px; color: var(--warn); border-color: var(--warn-border) !important; }
+  .rover-hud .rv-keys-btn { position: absolute; right: 24px; bottom: 24px; width: 32px; height: 32px; padding: 0; color: var(--text-2); }
+  .rover-hud .rv-keys-btn:hover, .rover-hud .rv-keys-btn[aria-expanded="true"] { color: var(--text); }
+  /* popovers sit in the top layer, placed by script next to their button */
+  .rv-pop { pointer-events: auto; position: fixed; inset: auto; margin: 0; width: 300px; max-width: calc(100vw - 16px); padding: 12px 14px; border-radius: 10px; background: #1b1d22; border: 1px solid var(--line-strong); color: var(--text-2); font: 400 12.5px/1.45 Archivo, system-ui, sans-serif; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
+  .rv-pop strong { color: var(--text); font-weight: 500; }
+  .rv-rows { display: grid; gap: 6px; }
+  .rv-row { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 8px; align-items: baseline; }
+  .rv-row > span { color: var(--muted); }
+  .rv-row > strong { font-variant-numeric: tabular-nums; }
+  .rv-keys-grid { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; margin-top: 8px; align-items: center; }
+  .rv-pop kbd { font: 500 11.5px 'IBM Plex Mono', monospace; padding: 1px 5px; border: 1px solid var(--line-strong); border-radius: 4px; color: var(--text); white-space: nowrap; }
+  .rv-msg { position: absolute; top: 64px; left: 50%; transform: translateX(-50%); max-width: calc(100vw - 32px); padding: 5px 14px; border-radius: 999px !important; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--warn); border-color: var(--warn-border) !important; pointer-events: none !important; }
   .rv-wait { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 10px 14px; color: var(--text-2); }
-  @media (max-width: 760px) { .rv-keys { display: none; } .rv-bottom { right: 16px; flex-direction: column; align-items: stretch; } .rv-panel { min-width: 0; } .rover-hud .rv-map { width: 150px; height: 150px; } }
+  @media (max-width: 760px) { .rv-top { left: 12px; right: 12px; } .rv-bottom { left: 12px; bottom: 12px; gap: 8px; } .rover-hud .rv-map { width: 132px; height: 132px; } .rv-panel { width: 220px; } .rover-hud .rv-keys-btn { display: none; } }
 `;
 const MIN_ICON = '<path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/>';
 
@@ -351,14 +371,16 @@ export function openRover(app, place, { letter = '', icon = () => '', fmtWhen = 
   viewEl.setAttribute('role', 'application'); viewEl.setAttribute('aria-label', `Rover at ${place.name}. Drag to look around. W and S drive, A and D steer.`);
   const hud = document.createElement('div'); hud.className = 'rover-hud';
   const svg = (paths, cls = '') => `<svg class="ic ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+  const INFO_ICON = '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>';
+  const KEY_LIST = [[['W', 'S'], 'drive'], [['A', 'D'], 'steer'], [['Space'], 'brake'], [['Shift'], 'fast travel'], [['R'], 'put upright'], [['C'], 'camera'], [['L'], 'lights'], [['M'], 'map scale'], [['?'], 'this list'], [['Esc'], 'exit']];
   hud.innerHTML = `
     <div class="rv-top">
-      <div class="card rv-id"><span class="letter" aria-hidden="true">${letter}</span>
-        <div><div class="rv-name"></div><div class="rv-note">Loading NASA's map of this place…</div></div></div>
-      <div class="card rv-time" role="group" aria-label="Time">
+      <div class="rv-glass rv-id"><span class="letter" aria-hidden="true">${letter}</span><span class="rv-name"></span>
+        <button type="button" class="rv-dot rv-about-btn" aria-expanded="false" aria-label="Where this ground comes from">${svg(INFO_ICON)}</button></div>
+      <div class="rv-glass rv-time" role="group" aria-label="Time">
         <button type="button" class="sm rv-back" aria-label="One hour earlier">&minus;1 h</button><span class="rv-when"></span>
         <button type="button" class="sm rv-fwd" aria-label="One hour later">+1 h</button></div>
-      <button type="button" class="rv-exit">${svg(MIN_ICON)}<span>Exit</span></button>
+      <button type="button" class="rv-glass rv-exit">Exit</button>
     </div>
     <div class="rv-bottom">
       <div class="card rv-map" role="img" aria-label="Map of the ground around the rover, north up. Your trail is the orange line.">
@@ -377,17 +399,23 @@ export function openRover(app, place, { letter = '', icon = () => '', fmtWhen = 
         <div class="rv-map-zoom"><button type="button" class="sm rv-zin" aria-label="Zoom the map in">+</button><button type="button" class="sm rv-zout" aria-label="Zoom the map out">&minus;</button></div>
       </div>
       <div class="card rv-panel" aria-live="off">
-        <p class="rv-line rv-sun">${icon('sun')}<span></span></p>
-        <p class="rv-line rv-earth">${icon('earth')}<span></span></p>
-        <p class="rv-data"></p>
+        <div class="rv-pills">
+          <span class="rv-pill rv-sun"><i></i><span>Sun</span></span>
+          <span class="rv-pill rv-earth"><i></i><span>Earth</span></span>
+          <button type="button" class="rv-specs" aria-expanded="false">Specs</button>
+        </div>
         <p class="rv-stats"></p>
       </div>
     </div>
-    <div class="card rv-keys"><kbd>W</kbd> <kbd>S</kbd> drive · <kbd>A</kbd> <kbd>D</kbd> steer · <kbd>Space</kbd> brake · <kbd>Shift</kbd> fast travel · <kbd>R</kbd> put upright · <kbd>C</kbd> camera · <kbd>L</kbd> lights · <kbd>M</kbd> map scale · <kbd>Esc</kbd> exit</div>
+    <button type="button" class="rv-glass rv-keys-btn" aria-expanded="false" aria-label="Rover controls">?</button>
+    <div class="rv-pop rv-about-pop" popover="manual" role="tooltip"><span class="rv-note">Loading NASA's map of this place…</span></div>
+    <div class="rv-pop rv-specs-pop" popover="manual" role="tooltip"><div class="rv-rows">${['Sun', 'Earth', 'Ground', 'Distance', 'Slope', 'Camera', 'Time'].map(k => `<div class="rv-row"><span>${k}</span><strong></strong></div>`).join('')}</div></div>
+    <div class="rv-pop rv-keys-pop" popover="manual" role="tooltip"><strong>Rover controls</strong>
+      <div class="rv-keys-grid">${KEY_LIST.map(([ks, act]) => `<span>${ks.map(k => `<kbd>${k}</kbd>`).join(' ')}</span><span>${act}</span>`).join('')}</div></div>
     <div class="card rv-msg" role="status" hidden></div>
     <div class="card rv-wait">Loading NASA heights…</div>`;
   const $ = s => hud.querySelector(s);
-  $('.rv-name').textContent = place.name;
+  $('.rv-name').textContent = place.name; $('.rv-name').title = place.name;
   document.body.append(viewEl, hud); document.body.classList.add('rover-on');
 
   // --- scenes and cameras ---
@@ -695,21 +723,67 @@ export function openRover(app, place, { letter = '', icon = () => '', fmtWhen = 
     const eyeY = pos3.y + 1.2;
     sunInfo.margin = skyMargin(sunDir, pos3.x, eyeY, pos3.z); sunInfo.up = sunInfo.margin > 0 && shared.uBlock.value < 0.99;
     earthInfo.margin = skyMargin(earthDir, pos3.x, eyeY, pos3.z); earthInfo.up = earthInfo.margin > 0;
-    const a = (v) => `${Math.abs(v).toFixed(1)}°`;
-    const sunLine = shared.uBlock.value >= 0.99 ? 'Earth is hiding the Sun' : sunInfo.up ? `Sunlit · Sun ${a(sunInfo.margin)} above the skyline` : `In shadow · Sun ${a(sunInfo.margin)} below the skyline`;
+    const a = (v) => `${Math.abs(v).toFixed(1)}°`, eclipse = shared.uBlock.value >= 0.99;
+    const sunLine = eclipse ? 'Earth is hiding the Sun' : sunInfo.up ? `Sunlit · Sun ${a(sunInfo.margin)} above the skyline` : `In shadow · Sun ${a(sunInfo.margin)} below the skyline`;
     const earthLine = earthInfo.up ? `Earth in view · ${a(earthInfo.margin)} above the skyline` : `No radio link · Earth ${a(earthInfo.margin)} below the skyline`;
-    $('.rv-sun span').textContent = sunLine; $('.rv-sun').classList.toggle('off', !sunInfo.up);
-    $('.rv-earth span').textContent = earthLine; $('.rv-earth').classList.toggle('off', !earthInfo.up);
+    // the pills only change colour and one word; the full sentence is in Specs and the pill's tooltip
+    setPill('.rv-sun', !sunInfo.up, eclipse ? 'Eclipse' : sunInfo.up ? 'Sun' : 'Shadow', sunLine);
+    setPill('.rv-earth', !earthInfo.up, earthInfo.up ? 'Earth' : 'No radio', earthLine);
     const kmh = Math.abs(veh.speed()) * 3.6, dist = Math.hypot(pos3.x, pos3.z), odometer = S.odometer;
-    $('.rv-stats').textContent = `${kmh.toFixed(1)} km/h · slope ${slopeDeg.toFixed(0)}° · ${dist < 1000 ? Math.round(dist) + ' m' : (dist / 1000).toFixed(2) + ' km'} from the site · driven ${odometer < 1000 ? Math.round(odometer) + ' m' : (odometer / 1000).toFixed(2) + ' km'}`;
+    const len = m => m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(2)} km`;
+    const slope = Math.round(slopeDeg), steep = slope > 25;
+    const statsKey = `${kmh.toFixed(1)}|${slope}|${len(dist)}`;
+    if (statsKey !== lastStats) {
+      lastStats = statsKey;
+      $('.rv-stats').innerHTML = `${kmh.toFixed(1)} km/h · <span class="${steep ? 'warn' : ''}">${slope}°</span> · ${len(dist)} out`;
+    }
     if (S.atEdge) say('End of the detailed NASA map. Turn back.');
-    if (slopeDeg > 25 && !S.settled && keys.size) say(`Too steep: ${slopeDeg.toFixed(0)}°. This rover climbs up to about 25°.`, 1500);
-    if (keys.has('shift')) say('Fast travel: 4 times the power and 14 m/s, far beyond a real rover', 600);
+    if (steep && !S.settled && keys.size) say(`Too steep: ${slope}°. This rover climbs up to about 25°.`, 1500);
+    if (keys.has('shift')) say('Fast travel: 4× power, 14 m/s. A real rover cannot do this.', 600);
+    const cell = ground.dataCell(pos3.x, pos3.z), coarse = cell > 5.01;
+    if (coarse && !wasCoarse) say(`Coarser map here: ${Math.round(cell)} m per pixel`, 3000);
+    wasCoarse = coarse;
     const m = $('.rv-msg'); if (now < msgUntil) { if (m.textContent !== msg) m.textContent = msg; m.hidden = false; } else m.hidden = true;
-    $('.rv-when').textContent = fmtWhen(app.date);
-    const cell = ground.dataCell(pos3.x, pos3.z);
-    $('.rv-data').textContent = `Ground here: NASA map, ${cell < 10 ? cell.toFixed(0) : Math.round(cell)} m per pixel`;
+    const t = app.date, hhmm = `${String(t.getUTCHours()).padStart(2, '0')}:${String(t.getUTCMinutes()).padStart(2, '0')} UTC`;
+    const when = $('.rv-when'); if (when.textContent !== hhmm) { when.textContent = hhmm; when.title = fmtWhen(t); }
+    const specs = [sunLine, earthLine, `NASA map, ${cell < 10 ? cell.toFixed(0) : Math.round(cell)} m per pixel`,
+      `${len(dist)} from the site · ${len(odometer)} driven`, `${slope}°${steep ? ', steeper than this rover can climb (about 25°)' : ''}`,
+      `${camMode === 'mast' ? 'Mast, 2.2 m above the ground' : 'Chase'} · lights ${lightsMode === 'auto' ? 'on in shadow' : lightsMode}`, fmtWhen(t)];
+    specRows.forEach((el, i) => { if (el.textContent !== specs[i]) el.textContent = specs[i]; });
+    for (const p of pops) if (p.open()) p.place();
   }
+  function setPill(sel, bad, word, tip) {
+    const el = $(sel); el.classList.toggle('bad', bad);
+    if (el.lastChild.textContent !== word) el.lastChild.textContent = word;
+    if (el.title !== tip) el.title = tip;
+  }
+  let lastStats = '', wasCoarse = false;
+  const specRows = [...hud.querySelectorAll('.rv-specs-pop strong')];
+
+  // --- popovers: hover (mouse) or click to open, click again, click outside or Esc to close; placed by hand so they never move the HUD ---
+  function bindPop(btn, pop, below) {
+    let pinned = false, timer = 0;
+    const open = () => pop.matches(':popover-open');
+    const place = () => {
+      const r = btn.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
+      const left = Math.max(8, Math.min(innerWidth - w - 8, r.left + w > innerWidth - 8 ? r.right - w : r.left));
+      const top = below ? r.bottom + 8 : Math.max(8, r.top - h - 8);
+      pop.style.left = `${left.toFixed(0)}px`; pop.style.top = `${top.toFixed(0)}px`;
+    };
+    const show = () => { clearTimeout(timer); if (!open()) pop.showPopover(); btn.setAttribute('aria-expanded', 'true'); place(); };
+    const hide = () => { clearTimeout(timer); pinned = false; if (open()) pop.hidePopover(); btn.setAttribute('aria-expanded', 'false'); };
+    const hideSoon = () => { clearTimeout(timer); if (!pinned) timer = setTimeout(hide, 150); };
+    btn.addEventListener('pointerenter', e => { if (e.pointerType === 'mouse') show(); });
+    btn.addEventListener('pointerleave', hideSoon);
+    pop.addEventListener('pointerenter', () => clearTimeout(timer));
+    pop.addEventListener('pointerleave', hideSoon);
+    btn.addEventListener('click', () => { if (pinned) hide(); else { pinned = true; show(); } });
+    return { open, place, hide, toggle: () => btn.click(), owns: el => btn.contains(el) || pop.contains(el) };
+  }
+  const pops = [bindPop($('.rv-about-btn'), $('.rv-about-pop'), true), bindPop($('.rv-specs'), $('.rv-specs-pop'), false)];
+  const keysPop = bindPop($('.rv-keys-btn'), $('.rv-keys-pop'), false); pops.push(keysPop);
+  const onPopDown = e => { for (const p of pops) if (p.open() && !p.owns(e.target)) p.hide(); };
+  document.addEventListener('pointerdown', onPopDown);
 
   // --- dynamic resolution (rover-fx.js): while frames run back to back, fewer pixels when they come late ---
   const DPR_TOP = Math.min(1.5, devicePixelRatio || 1), dyn = createDynamicResolution(DPR_TOP, Math.min(DPR_TOP, 0.6));
@@ -796,6 +870,8 @@ export function openRover(app, place, { letter = '', icon = () => '', fmtWhen = 
     }
     else if (k === 'm') { zoomMap((mapZoom + 1) % MAP_W.length); say(`Map: ${MAP_W[mapZoom] >= 1000 ? MAP_W[mapZoom] / 1000 + ' km' : MAP_W[mapZoom] + ' m'} across`); }
     else if (k === 'l') { lightsMode = lightsMode === 'auto' ? 'on' : lightsMode === 'on' ? 'off' : 'auto'; say(`Lights: ${lightsMode === 'auto' ? 'on in shadow' : lightsMode}`); }
+    else if (k === '?') { keysPop.toggle(); return; }
+    else if (k === 'escape' && pops.some(p => p.open())) { e.preventDefault(); for (const p of pops) p.hide(); return; }
     else if (k === 'escape' && !document.fullscreenElement) { e.preventDefault(); api.close(); return; }
     else return;
     wake();
@@ -831,7 +907,8 @@ export function openRover(app, place, { letter = '', icon = () => '', fmtWhen = 
     close() {
       if (current !== api) return; current = null;
       removeEventListener('keydown', onKeyDown); removeEventListener('keyup', onKeyUp); removeEventListener('blur', onBlur);
-      document.removeEventListener('fullscreenchange', onFullscreen);
+      document.removeEventListener('fullscreenchange', onFullscreen); document.removeEventListener('pointerdown', onPopDown);
+      for (const p of pops) p.hide();
       if (view) stage.remove(view); if (mapView) stage.remove(mapView); controls.dispose();
       for (const [v, h] of hidden) v.hidden = h;
       stage.maxDpr = keepDpr;
@@ -855,7 +932,7 @@ export function openRover(app, place, { letter = '', icon = () => '', fmtWhen = 
     veh.setEdge(ground.reach);
     const f = real[0], km = v => (v / 1000).toFixed(1).replace(/\.0$/, '');
     const what = f.source === 'nac' ? `LROC stereo map (${f.scale} m per pixel)` : `${f.scale} m map made from LROC photos and LOLA laser heights`;
-    $('.rv-note').textContent = `Ground: NASA's ${what}, ${km(2 * ground.reach)} km square. Rocks and craters under 4 m are made up: no map shows them.`;
+    $('.rv-note').innerHTML = `<strong>Ground:</strong> NASA's ${what}, ${km(2 * ground.reach)} km square.<br>Rocks and craters under 4 m are made up: no map shows them. Sun and Earth positions from JPL Horizons.`;
     $('.rv-wait').textContent = 'Building the ground…';
     await new Promise(r => setTimeout(r, 30));
     if (current !== api) return;
