@@ -546,8 +546,10 @@
   /* Card footer: two rows of fixed height, so a longer answer never moves the card */
   .foot {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 10px;
     flex: none;
+    min-width: 0;
   }
   .answer-row {
     display: flex;
@@ -555,6 +557,7 @@
     justify-content: space-between;
     gap: 10px;
     height: 28px;
+    min-width: 0;
   }
   .answer {
     display: inline-flex;
@@ -597,12 +600,14 @@
   /* Launch slip: one hairline per delay, green good, amber 48 hours or less left, red blocked */
   .slip {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 6px;
+    min-width: 0;
   }
   .slip-seg {
     display: grid;
     gap: 4px;
+    min-width: 0;
     font: 400 11px/14px 'IBM Plex Mono', monospace;
     color: var(--muted);
     text-align: center;
