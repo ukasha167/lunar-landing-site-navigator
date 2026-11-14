@@ -2,11 +2,16 @@
   moon3d.js: shared 3D engine for prototypes 11 to 20.
 
   Data (prototypes/assets, from the NASA SVS CGI Moon Kit, public domain):
-    moon_color_4k.jpg      LROC colour mosaic, equirectangular, centred on 0 deg longitude
+    moon_color_4k.webp     LROC colour mosaic, equirectangular, centred on 0 deg longitude (WebP quality 88:
+                           1.6 MB, was a 2.6 MB JPEG; 42 dB luma PSNR against it)
+    moon_color_1k.webp     the same map at 1024 x 512 (quality 88, 92 KB), shown until the 4k map arrives
     moon_height_8ppd.u16   LOLA elevation, 2880 x 1440, uint16 half-metres + 20000
     south_pole_625m.u16    LOLA elevation resampled to a polar stereographic grid,
                            1024 x 1024 over +/-320 km around the south pole
-    earth_2k.jpg           Earth day map (Three.js examples copy of NASA Blue Marble)
+    *.pack                 the two .u16 grids packed losslessly (tools/pack-heights.mjs, lib/height-pack.js):
+                           5.17 MB and 0.96 MB. The page loads these; the verify scripts read the .u16 files.
+    earth_512.webp         Earth day map (Three.js examples copy of NASA Blue Marble), 512 x 256, 14 KB. Earth is
+                           1.9 deg wide in every view (under 100 screen pixels), so a bigger map adds nothing visible
   Finer NASA maps around the built-in sites (5 m to 118 m, real-ground.js) join every height lookup once loaded
   (addDetail()). Nothing in this file makes up terrain: where no finer map is loaded, the ground is as coarse as
   the 625 m or 3.8 km grid.
@@ -19,6 +24,7 @@
 */
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { unpackHeights } from './height-pack.js?v=2';
 
 export { THREE, OrbitControls };
 const L = window.Lunar;
@@ -33,18 +39,27 @@ const POLAR_N = 1024, POLAR_HALF = 320, SIN_75S = Math.sin(-75 * D2R);
 */
 const KM = new Float32Array(65536);
 for (let u = 0; u < 65536; u++) KM[u] = (u - 20000) / 2000;
-let DATA = null;
+let DATA = null, fullColor = null;
+const colorUsers = new Set(); // material uniforms that show the colour map, so the 4096 px map can replace the 1024 px one
+/** Resolves once the 4096 px colour map has replaced the 1024 px one. The page redraws then. */
+export const whenFullColor = () => fullColor;
 export async function loadMoonData(base = 'assets/') {
   if (DATA) return DATA;
-  const tl = new THREE.TextureLoader(), bin = url => fetch(url).then(r => r.arrayBuffer());
-  // all four downloads start together
-  const [gBuf, pBuf, color, earth] = await Promise.all([
-    bin(base + 'moon_height_8ppd.u16'), bin(base + 'south_pole_625m.u16'),
-    tl.loadAsync(base + 'moon_color_4k.jpg'), tl.loadAsync(base + 'earth_2k.jpg'),
+  const tl = new THREE.TextureLoader();
+  const sRGB = t => { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t; };
+  /*
+    The first frame waits for 6.2 MB: both height grids, packed losslessly (tools/pack-heights.mjs, 10.4 MB raw),
+    the 1024 px colour map (92 KB) and Earth (14 KB). The 4096 px colour map (1.6 MB) starts once those have
+    arrived, so it does not share the connection with them, and replaces the small map when it lands.
+  */
+  // a response with a body stream unzips as it arrives (the Node checks' stand-in fetch has only arrayBuffer())
+  const heights = url => fetch(url).then(r => r.body ? unpackHeights(r.body) : r.arrayBuffer().then(unpackHeights));
+  const [g, p, color, earth] = await Promise.all([
+    heights(base + 'moon_height_8ppd.pack'), heights(base + 'south_pole_625m.pack'),
+    tl.loadAsync(base + 'moon_color_1k.webp').then(sRGB), tl.loadAsync(base + 'earth_512.webp').then(sRGB),
   ]);
-  for (const t of [color, earth]) { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; }
-  const global = { w: 2880, h: 1440, u16: new Uint16Array(gBuf) };
-  const polar = { n: POLAR_N, half: POLAR_HALF, u16: new Uint16Array(pBuf) };
+  const global = { w: g.w, h: g.h, u16: g.u16 };
+  const polar = { n: POLAR_N, half: POLAR_HALF, u16: p.u16 };
   // half-float copies for the GPU through a second 64K table: one read per sample, no float-to-half conversion
   const HALF = new Uint16Array(65536); for (let u = 0; u < 65536; u++) HALF[u] = THREE.DataUtils.toHalfFloat(KM[u]);
   const halfTex = (u16, w, h, wrap) => {
@@ -53,6 +68,10 @@ export async function loadMoonData(base = 'assets/') {
     t.magFilter = t.minFilter = THREE.LinearFilter; if (wrap) t.wrapS = THREE.RepeatWrapping; t.needsUpdate = true; return t;
   };
   DATA = { global, polar, color, earth, globalTex: halfTex(global.u16, global.w, global.h, true), polarTex: halfTex(polar.u16, POLAR_N, POLAR_N, false) };
+  // A new texture, not a new image in the old one: three.js allocates a texture's GPU storage once, at its first size.
+  fullColor = tl.loadAsync(base + 'moon_color_4k.webp').then(t => {
+    const small = DATA.color; DATA.color = sRGB(t); for (const u of colorUsers) u.value = t; small.dispose();
+  }, e => console.warn('4096 px colour map did not load, keeping the 1024 px one:', e?.message || e));
   return DATA;
 }
 
@@ -114,6 +133,8 @@ export function elevAt(px, py, pz, smooth = false, cellM = 0) { return smooth ? 
 const DETAIL = []; // coarsest first, so finer patches blend in last
 /** Use a patch from real-ground.js in every height lookup from now on. */
 export function addDetail(P) { if (!DETAIL.includes(P)) { DETAIL.push(P); DETAIL.sort((a, b) => b.scale - a.scale); } }
+/** Stop using a patch in height lookups. */
+export function removeDetail(P) { const i = DETAIL.indexOf(P); if (i >= 0) DETAIL.splice(i, 1); }
 /** Pixel size (m) of the finest NASA data at a unit vector: a patch's, else 625 (polar grid) or 3790 (global grid). */
 export function dataCellAt(px, py, pz) {
   let cell = coarseCell(px, py, pz);
@@ -270,7 +291,7 @@ const GLOBE_VS = /* glsl */`
 `;
 const GLOBE_FS = /* glsl */`
   precision highp float;
-  uniform sampler2D uColor, uHeight, uPolar; uniform vec3 uSun; uniform float uExag, uShadows, uSel; uniform vec3 uSelA, uSelB;
+  uniform sampler2D uColor, uHeight, uPolar; uniform vec3 uSun; uniform float uExag, uShadows, uSel, uSteps, uStepK; uniform vec3 uSelA, uSelB;
   varying vec3 vPos; varying vec3 vWorld;
   ${COMMON}
   vec2 toLL(vec3 p) { return vec2(asin(clamp(p.y, -1., 1.)), atan(-p.z, p.x)); }
@@ -301,8 +322,10 @@ const GLOBE_FS = /* glsl */`
       vec2 sd = vec2(dot(uSun, east), dot(uSun, north)); float hl = length(sd); sd /= max(hl, 1e-5);
       float tanEl = su / max(hl, 1e-5), minM = 1.;
       float fine = lat < -79.5 ? 1. : 5.;
+      // uSteps 56 and uStepK 1 is the full march. Slow GPUs get 24 steps, each uStepK = 56/24 times further along
+      // the same curve, so the last step still lands at the same distance (321 km at the pole).
       for (int i = 1; i <= 56; i++) {
-        float fi = float(i); float d = fine * (.7 * fi + .09 * fi * fi);
+        float fi = float(i); if (fi > uSteps) break; fi *= uStepK; float d = fine * (.7 * fi + .09 * fi * fi);
         vec3 q = normalize(p + (sd.x * east + sd.y * north) * (d / RK));
         float m = (H(q) - d * d / (2. * RK) - h0 - d * tanEl) / d; // >0 means terrain above the ray
         minM = min(minM, -m);
@@ -322,12 +345,17 @@ export function createGlobe(style = 'photo', { exag = 1.6, segments = 192 } = {}
   const d = DATA;
   const mat = new THREE.ShaderMaterial({
     defines: { STYLE: STYLES.indexOf(style) },
-    uniforms: { uColor: { value: d.color }, uHeight: { value: d.globalTex }, uPolar: { value: d.polarTex }, uSun: { value: new THREE.Vector3(1, 0, 0) }, uExag: { value: exag }, uShadows: { value: 1 }, uSel: { value: 0 }, uSelA: { value: new THREE.Vector3() }, uSelB: { value: new THREE.Vector3() } },
+    uniforms: { uColor: { value: d.color }, uHeight: { value: d.globalTex }, uPolar: { value: d.polarTex }, uSun: { value: new THREE.Vector3(1, 0, 0) }, uExag: { value: exag }, uShadows: { value: 1 }, uSteps: { value: 56 }, uStepK: { value: 1 }, uSel: { value: 0 }, uSelA: { value: new THREE.Vector3() }, uSelB: { value: new THREE.Vector3() } },
     vertexShader: GLOBE_VS, fragmentShader: GLOBE_FS,
   });
   mat.extensions = { derivatives: true };
   const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, segments, segments / 2), mat);
-  return { mesh, material: mat, setSun: v => mat.uniforms.uSun.value.copy(v) };
+  const u = mat.uniforms; colorUsers.add(u.uColor);
+  return {
+    mesh, material: mat, setSun: v => u.uSun.value.copy(v),
+    // coarse: 24 shadow steps instead of 56 (measured 2.7 to 1.6 ms for the Moon on an M1). Shadows get blockier along ridges.
+    setCoarseShadows: on => { u.uSteps.value = on ? 24 : 56; u.uStepK.value = on ? 56 / 24 : 1; },
+  };
 }
 
 export function createEarth({ radius = 1, style = 'photo' } = {}) {
@@ -580,18 +608,32 @@ export function createRelief(lat, lon, { style = 'photo', sizeKm = 40, n = 256, 
 
 // ---------- stage: one WebGL canvas, many views ----------
 export class Stage {
-  constructor({ background = 0x000000, antialias = true } = {}) {
+  /*
+    Pixels: at most 1.5 per CSS pixel, which is 56% of the pixels of a ratio-2 screen. MSAA only on screens under
+    ratio 1.5, where a 1-pixel stair step on the Moon's edge is large enough to see. On a ratio-2 screen the browser
+    scales the 1.5 canvas up, which softens the edge about as much as MSAA did.
+  */
+  constructor({ background = 0x000000, antialias = (devicePixelRatio || 1) < 1.5 } = {}) {
     this.canvas = document.createElement('canvas');
     // The canvas sits above the page (pointer events pass through) so opaque panels cannot hide a view.
     // Anything that must draw over a 3D view (pins, labels, buttons) needs z-index 3 or more.
     Object.assign(this.canvas.style, { position: 'fixed', inset: '0', width: '100%', height: '100%', pointerEvents: 'none', zIndex: '2' });
     document.body.prepend(this.canvas);
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias, alpha: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(2, devicePixelRatio || 1));
+    this.renderer.setPixelRatio(Math.min(1.5, devicePixelRatio || 1));
     this.renderer.setScissorTest(true);
     this.renderer.toneMapping = THREE.NoToneMapping;
     this.views = []; this.pending = false; this.bg = background; this._w = 0; this._h = 0; this._dpr = 0;
-    this.maxDpr = 2; // pixels per CSS pixel at most; a full-screen view may lower it
+    this.maxDpr = 1.5; // pixels per CSS pixel at most; a full-screen view may lower it
+    /*
+      GPU probe, once, 2 s after the page starts (the first frames compile shaders and upload textures, up to 344 ms
+      on an M1, so they say nothing about the steady cost). The first frame drawn after that waits for the GPU,
+      draws every view 5 more times, waits again, and divides. If one frame takes over slowMs, onSlow(ms) runs; the
+      page uses it to switch the Moon to coarser shadows. A hidden tab draws nothing, so the probe waits until it
+      shows. probe.ms stays readable for testers.
+    */
+    this.slowMs = 12; this.onSlow = null; this.probe = { ms: null, slow: false, due: false };
+    setTimeout(() => { this.probe.due = true; this.request(); }, 2000);
     const syncSize = () => {
       const w = innerWidth, h = innerHeight, dpr = Math.min(this.maxDpr, devicePixelRatio || 1);
       if (this._w !== w || this._h !== h || this._dpr !== dpr) {
@@ -624,11 +666,26 @@ export class Stage {
   remove(v) { this.views = this.views.filter(x => x !== v); this.ro.unobserve(v.el); v.controls?.dispose(); this.request(); }
   request() { if (!this.pending) { this.pending = true; requestAnimationFrame(() => this.render()); } }
   render() {
-    this.pending = false; this._syncSize(); const r = this.renderer, H = innerHeight; let moving = false;
+    this.pending = false; this._syncSize();
+    const { moving, drew } = this._drawAll();
+    if (this.probe.due && drew) this._runProbe();
+    if (moving) this.request();
+  }
+  _runProbe() {
+    const p = this.probe, gl = this.renderer.getContext(), px = new Uint8Array(4);
+    const sync = () => gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    p.due = false; sync();
+    const t0 = performance.now(); for (let i = 0; i < 5; i++) this._drawAll(); sync();
+    p.ms = (performance.now() - t0) / 5;
+    if (p.ms > this.slowMs) { p.slow = true; this.onSlow?.(p.ms); }
+  }
+  _drawAll() {
+    const r = this.renderer, H = innerHeight; let moving = false, drew = 0;
     r.setScissor(0, 0, innerWidth, H); r.setClearColor(0, 0); r.clear();
     for (const v of this.views) {
       const b = v.rect = v.el.getBoundingClientRect();
       if (v.hidden || b.bottom < 0 || b.top > H || b.width < 2 || b.height < 2) continue;
+      drew++;
       if (v.controls && v.controls.update()) moving = true;
       v.camera.aspect = b.width / b.height; v.camera.updateProjectionMatrix();
       v.before?.(v);
@@ -637,7 +694,7 @@ export class Stage {
       const c = v.clear ?? this.bg; if (c === 'transparent') r.setClearColor(0, 0); else r.setClearColor(c, 1); r.clear();
       if (v.render) v.render(r, v); else r.render(v.scene, v.camera);
     }
-    if (moving) this.request();
+    return { moving, drew };
   }
 }
 
