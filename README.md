@@ -32,7 +32,7 @@ Then open http://localhost:5318.
 | `site/assets/` | NASA LOLA elevation and LROC colour, resampled; NASA maps around the built-in sites (`sites/`); Earth texture |
 | `site/data/` | Sun and Earth positions downloaded from JPL Horizons |
 | `verify/` | Checks against JPL Horizons and NASA's maps; `VERIFY.md` is the checklist run after every change |
-| `submission/` | Drafts of every field in the Space Apps project form, the demo script and the slide outline |
+| `submission/` | The text of every field in the Space Apps project form, the pitch script with judge questions, the deck source and the project-page screenshots |
 | `team/` | Roles and the weekend schedule |
 | `tools/` | Scripts that download or convert data |
 
