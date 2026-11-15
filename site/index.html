@@ -13,7 +13,7 @@
      imports or fetches it has arrived: 4 round trips of modules before the first data download.
      The URLs must match the imports exactly, ?v= included: bump them here whenever an import's number changes. -->
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-<link rel="modulepreload" href="lib/app3d.js?v=12">
+<link rel="modulepreload" href="lib/app3d.js?v=13">
 <link rel="modulepreload" href="lib/moon3d.js?v=10">
 <link rel="modulepreload" href="lib/real-ground.js?v=5">
 <link rel="modulepreload" href="lib/height-pack.js?v=2">
@@ -24,6 +24,8 @@
 <link rel="preload" href="assets/south_pole_625m.pack" as="fetch" crossorigin>
 <link rel="preload" href="data/ephemeris.json" as="fetch" crossorigin>
 <link rel="preload" href="assets/sites/index.json" as="fetch" crossorigin>
+<link rel="preload" href="assets/sites/ridge_block.bin.gz" as="fetch" crossorigin>
+<link rel="preload" href="assets/sites/amundsen_block.bin.gz" as="fetch" crossorigin>
 <link rel="preload" href="assets/moon_color_1k.webp" as="image" crossorigin>
 <link rel="preload" href="assets/earth_512.webp" as="image" crossorigin>
 <style>
@@ -573,6 +575,7 @@
   .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--void); }
   .answer.ok .dot { background: var(--ok); }
   .answer.warn .dot { background: var(--warn); }
+  .answer.loading .dot { background: var(--muted); }
   .next-btn {
     flex: none;
     height: 24px;
@@ -622,6 +625,7 @@
   }
   .slip-seg.ok i { background: var(--ok); opacity: 1; }
   .slip-seg.warn i { background: var(--warn); opacity: 1; }
+  .slip-seg.loading i { background: var(--line-strong); opacity: 1; }
 
   /* Popovers: placed by script, so they never take room in the layout */
   .pop {
@@ -799,6 +803,27 @@
     font-size: 13px;
     padding: 8px 0 0;
   }
+  .boot-load {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: var(--muted);
+    font-size: 13px;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .boot-spin {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 1.5px solid var(--line-strong);
+    border-top-color: var(--text-2);
+    animation: boot-spin 0.8s linear infinite;
+  }
+  @keyframes boot-spin { to { transform: rotate(360deg); } }
 
   @media (max-width: 1180px) {
     .layout {
@@ -830,6 +855,7 @@
   }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { transition: none !important; }
+    .boot-spin { animation: none; }
   }
 </style>
 </head>
@@ -933,7 +959,7 @@
 
 <script src="lib/lunar.js?v=3"></script>
 <script type="module">
-import { createApp, fmtWhen, pickGlobe, placeName } from './lib/app3d.js?v=12';
+import { createApp, fmtWhen, pickGlobe, placeName, siteStats } from './lib/app3d.js?v=13';
 
 const $ = id => document.getElementById(id), L = window.Lunar;
 const cards = new Map();
@@ -1113,32 +1139,11 @@ function refreshGlobeHint(ll, count) {
 // Start on 19 Oct 2027, 06:00 UTC: Connecting Ridge can land; Amundsen Rim is dark (Sun below its skyline).
 // Two days later Connecting Ridge's own window starts closing, which the "If late by" line shows.
 const START_DATE = new Date(Date.UTC(2027, 9, 19, 6));
+const START_SITES = ['ridge', 'amundsen'].map(id => L.site(id));
 let stripStartMs = START_DATE.getTime();
 let axisStartMs = null;
-
-const app = await createApp({
-  globeEl: $('globe'),
-  style: 'photo',
-  clear: 0x111214,
-  maxPlaces: MAX_SITES,
-  wallColor: 0x22242a,
-  date: START_DATE,
-  start: ['ridge', 'amundsen'].map(id => { const s = L.site(id); return { lat: s.lat, lon: s.lon, name: s.name }; }),
-  onLimit: () => showNotice('Remove a site to add another', 3000),
-  onPick: () => clearNotice(),
-  onChange: (a, meta) => {
-    const t = a.date.getTime();
-    if (t < stripStartMs || t > stripStartMs + STRIP_MS) stripStartMs = t;
-    syncTime(a.date);
-    render(a, !!meta?.fast);
-  },
-  onRender: a => pins(a),
-});
-
-if (app.dateRange) {
-  $('date-picker').min = L.fmtDate(app.dateRange.start);
-  $('date-picker').max = L.fmtDate(app.dateRange.end);
-}
+let app = null;
+let appReady = false;
 
 function buildAxis() {
   if (axisStartMs === stripStartMs) return;
@@ -1217,7 +1222,7 @@ function buildStripData(p) {
 }
 
 function renderBands(card, p) {
-  const st = p._strip, W = st.n - 1;
+  const st = p?._strip, W = st ? st.n - 1 : STRIP_HOURS;
   const rects = (runs, y, cls) => runs.map(([s, e]) => `<rect class="${cls}" x="${s}" y="${y}" width="${Math.max(1, e - s)}" height="7"/>`).join('');
   let grid = '';
   for (let day = 5; day <= 25; day += 5) grid += `<rect class="b-grid" x="${day * 24}" y="0" width="1" height="26"/>`;
@@ -1227,10 +1232,263 @@ function renderBands(card, p) {
     `<rect class="b-track" x="0" y="9.5" width="${W}" height="7"/>` +
     `<rect class="b-track" x="0" y="19" width="${W}" height="7"/>` +
     grid +
-    rects(st.sunRuns, 0, 'b-sun') +
-    rects(st.earthRuns, 9.5, 'b-earth') +
-    rects(st.landRuns, 19, 'b-land') +
-    rects(st.warnRuns, 19, 'b-warn');
+    (st ? rects(st.sunRuns, 0, 'b-sun') +
+      rects(st.earthRuns, 9.5, 'b-earth') +
+      rects(st.landRuns, 19, 'b-land') +
+      rects(st.warnRuns, 19, 'b-warn') : '');
+}
+
+// A popover that opens on hover (mouse) or click, sits in the top layer, and is placed by hand,
+// so it never takes room in the page. Click pins it open; a click outside or Escape closes it.
+const openPops = new Set();
+function bindPop(btn, pop) {
+  let pinned = false, timer = null;
+  const place = () => {
+    const r = btn.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
+    const left = Math.max(8, Math.min(innerWidth - w - 8, r.right - w));
+    const top = r.top - h - 8 >= 8 ? r.top - h - 8 : Math.min(innerHeight - h - 8, r.bottom + 8);
+    pop.style.left = `${left.toFixed(0)}px`;
+    pop.style.top = `${top.toFixed(0)}px`;
+  };
+  const show = () => {
+    clearTimeout(timer);
+    if (!pop.matches(':popover-open')) pop.showPopover();
+    btn.setAttribute('aria-expanded', 'true');
+    openPops.add(ctl);
+    place();
+  };
+  const hide = () => {
+    clearTimeout(timer);
+    pinned = false;
+    if (pop.matches(':popover-open')) pop.hidePopover();
+    btn.setAttribute('aria-expanded', 'false');
+    openPops.delete(ctl);
+  };
+  const hideSoon = () => { clearTimeout(timer); if (!pinned) timer = setTimeout(hide, 150); };
+  btn.addEventListener('pointerenter', e => { if (e.pointerType === 'mouse') show(); });
+  btn.addEventListener('pointerleave', hideSoon);
+  pop.addEventListener('pointerenter', () => clearTimeout(timer));
+  pop.addEventListener('pointerleave', hideSoon);
+  btn.addEventListener('click', () => { if (pinned) hide(); else { pinned = true; show(); } });
+  const ctl = { place, hide, owns: el => btn.contains(el) || pop.contains(el) };
+  return ctl;
+}
+document.addEventListener('pointerdown', e => { for (const c of [...openPops]) if (!c.owns(e.target)) c.hide(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') for (const c of [...openPops]) c.hide(); });
+addEventListener('resize', () => { for (const c of openPops) c.place(); });
+bindPop($('legend-btn'), $('legend-pop'));
+
+function makeCardDOM() {
+  const col = document.createElement('article');
+  col.className = 'site panel';
+  col.innerHTML = `
+    <header class="site-head">
+      <span class="letter" aria-hidden="true"></span>
+      <div class="site-id">
+        <h2 class="site-name"></h2>
+        <span class="site-coords mono"></span>
+      </div>
+      <button type="button" class="x">${icon('x')}</button>
+    </header>
+    <div class="view">
+      <div class="view-3d"></div>
+      <button type="button" class="sm full-btn" aria-label="Drive a rover here (full screen)">${icon('expand')}</button>
+      <div class="sky-lbl" hidden>${icon('arrow')}<span></span></div>
+      <div class="sky-lbl" hidden>${icon('arrow')}<span></span></div>
+    </div>
+    <div class="foot">
+      <div class="answer-row">
+        <div class="answer void"><span class="dot"></span><span class="answer-text"></span><button type="button" class="next-btn" hidden></button></div>
+        <button type="button" class="round-btn info-card-btn" aria-expanded="false">Info</button>
+      </div>
+      <div class="slip">${SLIP.map(o => `<div class="slip-seg" role="img"><i></i><span aria-hidden="true">${o.short}</span></div>`).join('')}</div>
+    </div>
+    <div class="pop" popover="manual" role="tooltip">
+      <div class="dos">
+        <div class="dos-row"><span>Sun</span><strong></strong></div>
+        <div class="dos-row"><span>Earth</span><strong></strong></div>
+        <div class="dos-row"><span>Window</span><strong></strong></div>
+        <div class="dos-row"><span>If late</span><strong></strong></div>
+        <div class="dos-row"><span>30 days</span><strong></strong></div>
+        <div class="dos-row"><span>Map</span><strong></strong></div>
+      </div>
+    </div>`;
+
+  const row = document.createElement('div');
+  row.className = 'tl-row';
+  row.innerHTML = `
+    <span class="letter" aria-hidden="true"></span>
+    <div>
+      <div class="tl-bands"><svg preserveAspectRatio="none" aria-hidden="true"></svg><div class="tl-cur"></div></div>
+    </div>`;
+
+  const [sunLbl, earthLbl] = col.querySelectorAll('.sky-lbl');
+  const card = {
+    col, row, sunLbl, earthLbl,
+    view: col.querySelector('.view'),
+    view3d: col.querySelector('.view-3d'),
+    fullBtn: col.querySelector('.full-btn'),
+    letters: [col.querySelector('.letter'), row.querySelector('.letter')],
+    name: col.querySelector('.site-name'),
+    coords: col.querySelector('.site-coords'),
+    removeBtn: col.querySelector('.x'),
+    answer: col.querySelector('.answer'),
+    answerText: col.querySelector('.answer-text'),
+    nextBtn: col.querySelector('.next-btn'),
+    infoBtn: col.querySelector('.info-card-btn'),
+    pop: col.querySelector('.pop'),
+    dos: [...col.querySelectorAll('.dos-row strong')],
+    slipSegs: [...col.querySelectorAll('.slip-seg')],
+    dataKey: '',
+    bands: row.querySelector('.tl-bands'),
+    bandSvg: row.querySelector('svg'),
+  };
+  card.popCtl = bindPop(card.infoBtn, card.pop);
+  return card;
+}
+
+function updateCardReadout(card, site, s, strip, nowMs, mapText) {
+  const c = checkStats(s);
+  const sc = s.summary.sunChange, ec = s.summary.earthChange;
+
+  // landing window: open now (and when it closes), closing soon, or the next one in the 30 days
+  let closeH = Infinity;
+  if (c.state === 'ok') {
+    if (!useTeamVerdict) {
+      closeH = Math.min(isFinite(sc.hours) ? Math.max(0, sc.hours - 48) : Infinity, isFinite(ec.hours) ? Math.max(0, ec.hours - 48) : Infinity);
+    } else {
+      const cur = strip.landWins.find(w => nowMs >= w.startMs && nowMs <= w.endMs);
+      if (cur) closeH = Math.max(0, (cur.endMs - nowMs) / 36e5 + 1);
+    }
+  }
+  const next = c.state === 'void' ? strip.landWins.find(w => w.startMs > nowMs) : null;
+
+  // one short answer per card; the full reasons live in the Info popover
+  let answer, windowText;
+  if (c.state === 'ok') {
+    answer = isFinite(closeH) ? `Go for ${fmtDuration(closeH)}` : 'Go for 30+ days';
+    windowText = isFinite(closeH) ? `Open, closes in ${fmtDuration(closeH)}` : 'Open for 30+ days';
+  } else if (c.state === 'warn') {
+    const sunLow = sc.hours <= 48, earthLow = ec.hours <= 48;
+    answer = sunLow && earthLow ? `Sun and Earth set in ${fmtDuration(Math.min(sc.hours, ec.hours))}`
+      : sunLow ? `Sun sets in ${fmtDuration(sc.hours)}`
+      : earthLow ? `Earth sets in ${fmtDuration(ec.hours)}`
+      : (c.why || 'Short window');
+    windowText = `Open, but 48 hours or less left`;
+  } else {
+    answer = useTeamVerdict && c.why ? c.why
+      : !s.sunUp && !s.earthUp ? 'Dark, Earth hidden'
+      : !s.sunUp ? 'Dark now'
+      : 'Earth hidden';
+    windowText = next ? `Next opens ${fmtShortDT(new Date(next.startMs))}, for ${fmtDuration(next.hours)}` : 'No window in the next 30 days';
+    if (!next) answer += ' · no window in 30 days';
+  }
+  card.answer.className = `answer ${c.state}`;
+  if (card.answerText.textContent !== answer) {
+    card.answerText.textContent = answer;
+    card.answerText.title = answer;
+  }
+  const nextKey = next ? String(next.startMs) : '';
+  if (card.nextBtn.dataset.goto !== nextKey) {
+    card.nextBtn.dataset.goto = nextKey;
+    card.nextBtn.hidden = !next;
+    if (next) {
+      const d = new Date(next.startMs);
+      card.nextBtn.textContent = `Next ${fmtShortDay(d)} ↗`;
+      card.nextBtn.title = `Move the time to the next landing window: ${fmtShortDT(d)}`;
+      card.nextBtn.setAttribute('aria-label', card.nextBtn.title);
+    }
+  }
+
+  const slipStates = SLIP.map((o, k) => {
+    const st = checkStateAtDate(site, new Date(nowMs + o.hours * 36e5), useTeamVerdict);
+    const seg = card.slipSegs[k];
+    seg.className = `slip-seg ${st}`;
+    const tip = `If the launch is ${o.label} late: ${SLIP_WORDS[st]}`;
+    if (seg.title !== tip) { seg.title = tip; seg.setAttribute('aria-label', tip); }
+    return `${o.label}: ${SLIP_WORDS[st]}`;
+  });
+
+  const deg = m => `${Math.abs(m).toFixed(1)}°`;
+  const dosText = [
+    `${s.sunUp ? `Up, ${deg(s.sunMargin)} above the skyline` : `Down, ${deg(s.sunMargin)} below the skyline`}. ${sunLine(s)}.`,
+    `${s.earthUp ? `In view, ${deg(s.earthMargin)} above the skyline` : `Hidden, ${deg(s.earthMargin)} below the skyline`}. ${earthLine(s)}.`,
+    windowText,
+    slipStates.join(' · '),
+    s.summary.longestDark < 0.5 ? `${s.sunShare}% sunlit, never dark` : `${s.sunShare}% sunlit, longest dark ${fmtDuration(s.summary.longestDark)}`,
+    mapText,
+  ];
+  dosText.forEach((t, k) => { if (card.dos[k].textContent !== t) card.dos[k].textContent = t; });
+  if (card.pop.matches(':popover-open')) card.popCtl.place();
+}
+
+// Show the date, site cards, timeline tracks and subtle loaders right away while the 6.2 MB height packs download.
+syncTime(START_DATE);
+globeEl.insertAdjacentHTML('afterbegin', '<div class="boot-load" id="globe-load" role="status" aria-live="polite"><span class="boot-spin" aria-hidden="true"></span><span>Loading 3D Moon…</span></div>');
+const bootSitesEl = $('sites');
+bootSitesEl.style.setProperty('--n', String(START_SITES.length));
+bootSitesEl.dataset.n = String(START_SITES.length);
+const bootCards = START_SITES.map((s, i) => {
+  const card = makeCardDOM();
+  card.col.classList.add('boot-item');
+  card.row.classList.add('boot-item');
+  for (const el of card.letters) el.textContent = LETTERS[i];
+  card.name.textContent = s.name;
+  card.name.title = s.name;
+  card.coords.textContent = placeName(s.lat, s.lon).coords;
+  card.col.setAttribute('aria-label', `Site ${LETTERS[i]}, ${s.name}`);
+  card.removeBtn.setAttribute('aria-label', `Remove ${s.name}`);
+  card.view.insertAdjacentHTML('beforeend', '<div class="boot-load" role="status" aria-live="polite"><span class="boot-spin" aria-hidden="true"></span><span>Loading 3D terrain…</span></div>');
+  card.fullBtn.setAttribute('aria-disabled', 'true');
+  card.answer.className = 'answer loading';
+  card.answerText.textContent = 'Loading data…';
+  for (const seg of card.slipSegs) seg.className = 'slip-seg loading';
+  card.dos.forEach(el => { el.textContent = 'Loading…'; });
+  renderBands(card, null);
+  bootSitesEl.append(card.col);
+  $('tl-rows').append(card.row);
+  return { site: s, card };
+});
+
+app = await createApp({
+  globeEl: $('globe'),
+  style: 'photo',
+  clear: 0x111214,
+  maxPlaces: MAX_SITES,
+  wallColor: 0x22242a,
+  date: START_DATE,
+  start: START_SITES.map(s => ({ lat: s.lat, lon: s.lon, name: s.name })),
+  onDataReady: () => {
+    if (appReady) return;
+    const nowMs = START_DATE.getTime();
+    for (const { site, card } of bootCards) {
+      const stats = siteStats(site, START_DATE);
+      const holder = { relief: { site }, stats, dataVersion: 0 };
+      buildStripData(holder);
+      renderBands(card, holder);
+      updateCardReadout(card, site, stats, holder._strip, nowMs, 'Loading 3D terrain…');
+    }
+  },
+  onLimit: () => showNotice('Remove a site to add another', 3000),
+  onPick: () => clearNotice(),
+  onChange: (a, meta) => {
+    if (!appReady) return;
+    const t = a.date.getTime();
+    if (t < stripStartMs || t > stripStartMs + STRIP_MS) stripStartMs = t;
+    syncTime(a.date);
+    render(a, !!meta?.fast);
+  },
+  onRender: a => pins(a),
+});
+
+$('globe-load')?.remove();
+for (const b of bootCards) b.card.popCtl.hide();
+document.querySelectorAll('.boot-item').forEach(e => e.remove());
+appReady = true;
+
+if (app.dateRange) {
+  $('date-picker').min = L.fmtDate(app.dateRange.start);
+  $('date-picker').max = L.fmtDate(app.dateRange.end);
 }
 
 // Sun and Earth labels in a terrain view: above the body when it is in frame, else on the edge with an arrow toward it
@@ -1327,46 +1585,6 @@ $('tl-axis').addEventListener('keydown', e => {
   }
 });
 
-// A popover that opens on hover (mouse) or click, sits in the top layer, and is placed by hand,
-// so it never takes room in the page. Click pins it open; a click outside or Escape closes it.
-const openPops = new Set();
-function bindPop(btn, pop) {
-  let pinned = false, timer = null;
-  const place = () => {
-    const r = btn.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
-    const left = Math.max(8, Math.min(innerWidth - w - 8, r.right - w));
-    const top = r.top - h - 8 >= 8 ? r.top - h - 8 : Math.min(innerHeight - h - 8, r.bottom + 8);
-    pop.style.left = `${left.toFixed(0)}px`;
-    pop.style.top = `${top.toFixed(0)}px`;
-  };
-  const show = () => {
-    clearTimeout(timer);
-    if (!pop.matches(':popover-open')) pop.showPopover();
-    btn.setAttribute('aria-expanded', 'true');
-    openPops.add(ctl);
-    place();
-  };
-  const hide = () => {
-    clearTimeout(timer);
-    pinned = false;
-    if (pop.matches(':popover-open')) pop.hidePopover();
-    btn.setAttribute('aria-expanded', 'false');
-    openPops.delete(ctl);
-  };
-  const hideSoon = () => { clearTimeout(timer); if (!pinned) timer = setTimeout(hide, 150); };
-  btn.addEventListener('pointerenter', e => { if (e.pointerType === 'mouse') show(); });
-  btn.addEventListener('pointerleave', hideSoon);
-  pop.addEventListener('pointerenter', () => clearTimeout(timer));
-  pop.addEventListener('pointerleave', hideSoon);
-  btn.addEventListener('click', () => { if (pinned) hide(); else { pinned = true; show(); } });
-  const ctl = { place, hide, owns: el => btn.contains(el) || pop.contains(el) };
-  return ctl;
-}
-document.addEventListener('pointerdown', e => { for (const c of [...openPops]) if (!c.owns(e.target)) c.hide(); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') for (const c of [...openPops]) c.hide(); });
-addEventListener('resize', () => { for (const c of openPops) c.place(); });
-bindPop($('legend-btn'), $('legend-pop'));
-
 // Hover readout for a site's bars: the time under the pointer and what the bars say there
 const tlTip = document.createElement('div');
 tlTip.className = 'tl-tip';
@@ -1391,71 +1609,8 @@ function bindBandTip(el, p) {
 }
 
 function createSite(a, p) {
-  const col = document.createElement('article');
-  col.className = 'site panel';
-  col.innerHTML = `
-    <header class="site-head">
-      <span class="letter" aria-hidden="true"></span>
-      <div class="site-id">
-        <h2 class="site-name"></h2>
-        <span class="site-coords mono"></span>
-      </div>
-      <button type="button" class="x">${icon('x')}</button>
-    </header>
-    <div class="view">
-      <div class="view-3d"></div>
-      <button type="button" class="sm full-btn" aria-label="Drive a rover here (full screen)">${icon('expand')}</button>
-      <div class="sky-lbl" hidden>${icon('arrow')}<span></span></div>
-      <div class="sky-lbl" hidden>${icon('arrow')}<span></span></div>
-    </div>
-    <div class="foot">
-      <div class="answer-row">
-        <div class="answer void"><span class="dot"></span><span class="answer-text"></span><button type="button" class="next-btn" hidden></button></div>
-        <button type="button" class="round-btn info-card-btn" aria-expanded="false">Info</button>
-      </div>
-      <div class="slip">${SLIP.map(o => `<div class="slip-seg" role="img"><i></i><span aria-hidden="true">${o.short}</span></div>`).join('')}</div>
-    </div>
-    <div class="pop" popover="manual" role="tooltip">
-      <div class="dos">
-        <div class="dos-row"><span>Sun</span><strong></strong></div>
-        <div class="dos-row"><span>Earth</span><strong></strong></div>
-        <div class="dos-row"><span>Window</span><strong></strong></div>
-        <div class="dos-row"><span>If late</span><strong></strong></div>
-        <div class="dos-row"><span>30 days</span><strong></strong></div>
-        <div class="dos-row"><span>Map</span><strong></strong></div>
-      </div>
-    </div>`;
-
-  const row = document.createElement('div');
-  row.className = 'tl-row';
-  row.innerHTML = `
-    <span class="letter" aria-hidden="true"></span>
-    <div>
-      <div class="tl-bands"><svg preserveAspectRatio="none" aria-hidden="true"></svg><div class="tl-cur"></div></div>
-    </div>`;
-
-  const [sunLbl, earthLbl] = col.querySelectorAll('.sky-lbl');
-  const card = {
-    col, row, sunLbl, earthLbl,
-    view: col.querySelector('.view'),
-    view3d: col.querySelector('.view-3d'),
-    fullBtn: col.querySelector('.full-btn'),
-    letters: [col.querySelector('.letter'), row.querySelector('.letter')],
-    name: col.querySelector('.site-name'),
-    coords: col.querySelector('.site-coords'),
-    removeBtn: col.querySelector('.x'),
-    answer: col.querySelector('.answer'),
-    answerText: col.querySelector('.answer-text'),
-    nextBtn: col.querySelector('.next-btn'),
-    infoBtn: col.querySelector('.info-card-btn'),
-    pop: col.querySelector('.pop'),
-    dos: [...col.querySelectorAll('.dos-row strong')],
-    slipSegs: [...col.querySelectorAll('.slip-seg')],
-    dataKey: '',
-    bands: row.querySelector('.tl-bands'),
-    bandSvg: row.querySelector('svg'),
-  };
-  card.popCtl = bindPop(card.infoBtn, card.pop);
+  const card = makeCardDOM();
+  const { col, row } = card;
 
   p.onReliefFrame = () => updateSkyLabels(p);
   card.fullBtn.onclick = async () => {
@@ -1521,15 +1676,12 @@ function render(a, fast = false) {
       renderBands(card, p);
     }
 
-    const s = p.stats, c = checkStats(s);
     for (const el of card.letters) el.textContent = LETTERS[i];
     card.name.textContent = p.name;
     card.name.title = p.name;
     card.coords.textContent = p.coords;
     card.removeBtn.setAttribute('aria-label', `Remove ${p.name}`);
     card.col.setAttribute('aria-label', `Site ${LETTERS[i]}, ${p.name}`);
-
-    const sc = s.summary.sunChange, ec = s.summary.earthChange;
 
     // which NASA map the block and the rover use here; the rover only where a 5 m (or finer) map holds the place
     const cell = p.relief.tile.cellM, fine = p.data.fine && p.data.fine.scale <= 5.01 ? p.data.fine : null;
@@ -1545,76 +1697,7 @@ function render(a, fast = false) {
         : 'Not enough detail for a rover here. It needs a NASA map with 5 m pixels or finer: the 13 Artemis III regions and Apollo 11 have one.';
     }
 
-    // landing window: open now (and when it closes), closing soon, or the next one in the 30 days
-    let closeH = Infinity;
-    if (c.state === 'ok') {
-      if (!useTeamVerdict) {
-        closeH = Math.min(isFinite(sc.hours) ? Math.max(0, sc.hours - 48) : Infinity, isFinite(ec.hours) ? Math.max(0, ec.hours - 48) : Infinity);
-      } else {
-        const cur = p._strip.landWins.find(w => nowMs >= w.startMs && nowMs <= w.endMs);
-        if (cur) closeH = Math.max(0, (cur.endMs - nowMs) / 36e5 + 1);
-      }
-    }
-    const next = c.state === 'void' ? p._strip.landWins.find(w => w.startMs > nowMs) : null;
-
-    // one short answer per card; the full reasons live in the Info popover
-    let answer, windowText;
-    if (c.state === 'ok') {
-      answer = isFinite(closeH) ? `Go for ${fmtDuration(closeH)}` : 'Go for 30+ days';
-      windowText = isFinite(closeH) ? `Open, closes in ${fmtDuration(closeH)}` : 'Open for 30+ days';
-    } else if (c.state === 'warn') {
-      const sunLow = sc.hours <= 48, earthLow = ec.hours <= 48;
-      answer = sunLow && earthLow ? `Sun and Earth set in ${fmtDuration(Math.min(sc.hours, ec.hours))}`
-        : sunLow ? `Sun sets in ${fmtDuration(sc.hours)}`
-        : earthLow ? `Earth sets in ${fmtDuration(ec.hours)}`
-        : (c.why || 'Short window');
-      windowText = `Open, but 48 hours or less left`;
-    } else {
-      answer = useTeamVerdict && c.why ? c.why
-        : !s.sunUp && !s.earthUp ? 'Dark, Earth hidden'
-        : !s.sunUp ? 'Dark now'
-        : 'Earth hidden';
-      windowText = next ? `Next opens ${fmtShortDT(new Date(next.startMs))}, for ${fmtDuration(next.hours)}` : 'No window in the next 30 days';
-      if (!next) answer += ' · no window in 30 days';
-    }
-    card.answer.className = `answer ${c.state}`;
-    if (card.answerText.textContent !== answer) {
-      card.answerText.textContent = answer;
-      card.answerText.title = answer;
-    }
-    const nextKey = next ? String(next.startMs) : '';
-    if (card.nextBtn.dataset.goto !== nextKey) {
-      card.nextBtn.dataset.goto = nextKey;
-      card.nextBtn.hidden = !next;
-      if (next) {
-        const d = new Date(next.startMs);
-        card.nextBtn.textContent = `Next ${fmtShortDay(d)} ↗`;
-        card.nextBtn.title = `Move the time to the next landing window: ${fmtShortDT(d)}`;
-        card.nextBtn.setAttribute('aria-label', card.nextBtn.title);
-      }
-    }
-
-    const slipStates = SLIP.map((o, k) => {
-      const st = checkStateAtDate(p.relief.site, new Date(nowMs + o.hours * 36e5), useTeamVerdict);
-      const seg = card.slipSegs[k];
-      seg.className = `slip-seg ${st}`;
-      const tip = `If the launch is ${o.label} late: ${SLIP_WORDS[st]}`;
-      if (seg.title !== tip) { seg.title = tip; seg.setAttribute('aria-label', tip); }
-      return `${o.label}: ${SLIP_WORDS[st]}`;
-    });
-
-    const deg = m => `${Math.abs(m).toFixed(1)}°`;
-    const dosText = [
-      `${s.sunUp ? `Up, ${deg(s.sunMargin)} above the skyline` : `Down, ${deg(s.sunMargin)} below the skyline`}. ${sunLine(s)}.`,
-      `${s.earthUp ? `In view, ${deg(s.earthMargin)} above the skyline` : `Hidden, ${deg(s.earthMargin)} below the skyline`}. ${earthLine(s)}.`,
-      windowText,
-      slipStates.join(' · '),
-      s.summary.longestDark < 0.5 ? `${s.sunShare}% sunlit, never dark` : `${s.sunShare}% sunlit, longest dark ${fmtDuration(s.summary.longestDark)}`,
-      card.mapText,
-    ];
-    dosText.forEach((t, k) => { if (card.dos[k].textContent !== t) card.dos[k].textContent = t; });
-    if (card.pop.matches(':popover-open')) card.popCtl.place();
-
+    updateCardReadout(card, p.relief.site, p.stats, p._strip, nowMs, card.mapText);
     updateSkyLabels(p);
   });
 

@@ -28,8 +28,22 @@ export const DEFAULT_DATE = new Date(Date.UTC(2027, 9, 25, 6)); // a lunar day w
 */
 export async function createApp(o) {
   const opt = Object.assign({ style: 'photo', clear: 0x000000, maxPlaces: 3, stars: true, earthDist: 60, start: [], date: DEFAULT_DATE }, o);
-  // the built-in sites' skylines come with the index of their NASA maps (site/assets/sites, tools/build-sites.py)
-  await Promise.all([loadMoonData(), L.loadEphemeris(opt.ephemeris || 'data/ephemeris.json'), loadSiteIndex().then(j => L.useSkylines(j))]);
+  const loaded = new Map(); // file -> { meta, P }
+  const loadBlock = (lat, lon) => {
+    const d = dataAt(lat, lon);
+    if (!d.block || loaded.has(d.block.file)) return null;
+    return loadPatch(d.block, 'block').then(P => { addDetail(P); loaded.set(d.block.file, { meta: d.block, P }); return P; });
+  };
+  // the built-in sites' skylines come with the index of their NASA maps (site/assets/sites, tools/build-sites.py);
+  // load the start sites' blocks in parallel with the global height packs instead of waiting a second round trip.
+  const startReady = Promise.all([
+    L.loadEphemeris(opt.ephemeris || 'data/ephemeris.json'),
+    loadSiteIndex().then(j => L.useSkylines(j)),
+  ]).then(() => {
+    opt.onDataReady?.();
+    return Promise.all(opt.start.map(s => loadBlock(s.lat, s.lon)).filter(Boolean)).catch(e => console.warn('NASA map did not load:', e.message));
+  });
+  await Promise.all([loadMoonData(), startReady]);
   // the stats look up to 60 days ahead, so the last date we accept is 61 days before the table ends
   const dateRange = { start: L.RANGE.start, end: new Date(L.RANGE.end.getTime() - 61 * 864e5) };
   const clampDate = d => new Date(Math.min(Math.max(new Date(d).getTime(), dateRange.start.getTime()), dateRange.end.getTime()));
@@ -94,12 +108,6 @@ export async function createApp(o) {
     NASA block patch (44 km, 59 to 118 m per pixel) for a place, if a built-in site's patch holds it. Once loaded it joins
     every height lookup (addDetail), so the block and skyline of any place inside it use it too.
   */
-  const loaded = new Map(); // file -> { meta, P }
-  const loadBlock = (lat, lon) => {
-    const d = dataAt(lat, lon);
-    if (!d.block || loaded.has(d.block.file)) return null;
-    return loadPatch(d.block, 'block').then(P => { addDetail(P); loaded.set(d.block.file, { meta: d.block, P }); return P; });
-  };
   // Drop block patches that no open place lies inside. The open places' own heights never change: each keeps
   // every patch that covers it. Without this, every site ever opened keeps its patch for the life of the page.
   const releaseBlocks = () => {
@@ -208,8 +216,6 @@ export async function createApp(o) {
 
   window.__moonApp = app; // handy for measuring in devtools
   app.setDate(app.date); app.focus();
-  // the first places open with their NASA maps already in, so their blocks never show the coarse grid first
-  await Promise.all(opt.start.map(s => loadBlock(s.lat, s.lon)).filter(Boolean)).catch(e => console.warn('NASA map did not load:', e.message));
   for (const s of opt.start) app.addPlace(s.lat, s.lon, s.name);
   return app;
 }
