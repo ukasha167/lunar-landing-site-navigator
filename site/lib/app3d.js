@@ -72,17 +72,23 @@ export async function createApp(o) {
   // camera: keep target locked on the Moon's center (0, 0, 0) so rotation stays centered.
   // A polar site is seen from straight below (or above) its pole, far enough that the whole disc fits the view,
   // with 0 deg longitude (the Earth-facing side) at the top.
+  // opt.globeMargin: pixels left between the Moon's edge and the view's nearest side (default 8% of the half size)
   app.focus = (lat = -89.5, lon = 0, dist = null) => {
+    // spend what is left of a drag's damped spin first, so it does not turn the new view
+    const damping = controls.enableDamping;
+    controls.enableDamping = false; controls.update();
     if (lat <= -80 || lat >= 80) {
       const b = opt.globeEl.getBoundingClientRect(), aspect = b.width / Math.max(1, b.height);
       const halfV = camera.fov / 2 * Math.PI / 180, halfH = Math.atan(Math.tan(halfV) * aspect);
-      const fit = 1 / Math.sin(Math.min(halfV, halfH) * 0.92);
+      const S = Math.max(1, Math.min(b.width, b.height) / 2), margin = opt.globeMargin ?? S * 0.08;
+      const fit = 1 / Math.sin(Math.atan(Math.max(0.5, (S - margin) / S) * Math.tan(Math.min(halfV, halfH))));
       camera.position.copy(llToVec(lat < 0 ? -89 : 89, 0).multiplyScalar(dist ?? fit));
     } else {
       camera.position.copy(llToVec(Math.max(-65, Math.min(65, lat)), lon).multiplyScalar(dist ?? 3.0));
     }
     controls.target.set(0, 0, 0);
     controls.update();
+    controls.enableDamping = damping;
     stage.request();
   };
 
