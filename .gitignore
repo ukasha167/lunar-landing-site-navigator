@@ -4,4 +4,3 @@ verify/out/*
 !verify/out/.gitkeep
 *.tif
 tools/.cache/
-submission/
