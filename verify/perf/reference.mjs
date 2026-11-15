@@ -1,6 +1,7 @@
 // The terrain code as it was before the 14 Nov 2026 speed-up, copied from site/lib/moon3d.js. One change: the
 // crater rim fix made the same day (marked below), so the comparison checks the speed-up alone.
 // verify/perf.mjs runs it next to the current code and fails if their outputs drift apart.
+// Written with Claude Code (an AI coding agent) at the team's direction. See README.md, "Use of AI".
 import * as THREE from './three-stub.mjs';
 const R_KM = 1737.4;
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;

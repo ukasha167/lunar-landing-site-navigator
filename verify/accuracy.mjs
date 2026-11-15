@@ -2,8 +2,8 @@
 // Horizons reports positions above the smooth Moon, before terrain, so both parts use a flat horizon.
 // Terrain is checked separately against Quickmap (VERIFY.md, step 4).
 //
-// Part 1, sky position. Every site in our list (south pole, mid-latitude, equator, far side) on 12 dates
-//   from 2026 to 2030. We compare the whole direction (the angle between our Sun and Horizons' Sun),
+// Part 1, sky position. Every site in our list (south pole, mid-latitude, equator, far side) on 15 dates
+//   from 2023 to 2030 (the three 2023 to 2025 dates cover the new replay range). We compare the whole direction (the angle between our Sun and Horizons' Sun),
 //   not only the elevation: azimuth decides which ridge the Sun hides behind. Sites away from the pole
 //   matter here. At the pole the Sun's height barely depends on its longitude, so a polar-only test
 //   misses longitude errors.
@@ -19,11 +19,12 @@
 //     from the start date ("Dark in 31 h" may be off by 0.31 h at most), or within 1 minute.
 //
 // Run: node verify/accuracy.mjs        Needs internet. Exits with code 1 if any row fails.
+// Written with Claude Code (an AI coding agent) at the team's direction. See README.md, "Use of AI".
 import { readFileSync, writeFileSync } from 'node:fs';
 import vm from 'node:vm';
 
 const DIRECTION_TOL_DEG = 0.01, SHARE_TOL_PTS = 1, EVENT_TOL_FRAC = 0.01, EVENT_TOL_MIN_H = 1 / 60;
-const DATES = ['2026-02-03 00:00', '2026-06-17 13:30', '2026-11-14 09:00', '2027-01-10 06:00', '2027-04-15 06:00', '2027-07-01 06:00',
+const DATES = ['2023-08-23 12:00', '2024-06-01 22:00', '2025-03-06 17:00', '2026-02-03 00:00', '2026-06-17 13:30', '2026-11-14 09:00', '2027-01-10 06:00', '2027-04-15 06:00', '2027-07-01 06:00',
   '2027-10-25 06:00', '2027-12-20 06:00', '2028-05-08 21:15', '2029-03-22 04:45', '2030-08-30 17:00', '2030-12-30 23:00'];
 const BODIES = [{ key: 'sun', name: 'Sun', id: '10' }, { key: 'earth', name: 'Earth', id: '399' }];
 const TIMING_SITES = ['peak-shk', 'ridge', 'degerl', 'malap'];

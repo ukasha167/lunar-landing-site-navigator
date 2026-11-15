@@ -4,6 +4,7 @@
 // resolution rule (rover-fx.js). Exits 1 if any check fails.
 //
 // Run: node verify/rover.mjs        No internet needed. About 5 s on an M1.
+// Written with Claude Code (an AI coding agent) at the team's direction. See README.md, "Use of AI".
 import { readFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 import vm from 'node:vm';

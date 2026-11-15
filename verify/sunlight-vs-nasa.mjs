@@ -1,12 +1,14 @@
 // Compares the app's "share of time the Sun is up" at the south pole sites with NASA's own map of it
 // (Mazarico et al. 2011, LOLA team, PDS: AVGVISIB_85S_060M_201608.IMG at 60 m per pixel, and the 120 m map to 75 S;
 // share of hourly steps over 18.6 years where any part of the Sun's disc was above the skyline).
-// The app's number: same rule, hourly over the app's JPL Horizons table (2026 to 2031), with each site's skyline
+// The app's number: same rule, hourly from 1 Jan 2026 to the end of the app's JPL Horizons table (Mar 2031; the
+// table itself starts in 2023, see FROM below), with each site's skyline
 // from site/assets/sites/index.json (tools/build-sites.py). The two cover different years, so a few points of
 // difference are expected even with identical terrain.
 //
 // PASS if within 5 percentage points. Exits 1 on any FAIL.
 // Run: node verify/sunlight-vs-nasa.mjs        Needs internet (reads 1 pixel per site from each NASA map).
+// Written with Claude Code (an AI coding agent) at the team's direction. See README.md, "Use of AI".
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
@@ -32,9 +34,12 @@ async function nasa(lat, lon) {
   }
   return null;
 }
+// The table now starts in 2023 so past landings can be replayed, but this check keeps the window it was set up
+// with: 1 Jan 2026 06:00 UTC to the table's end. SUN_FROM=2023-01-01 compares over the longer window instead.
+const FROM = Math.max(L.RANGE.start.getTime(), Date.parse(process.env.SUN_FROM || '2026-01-01T06:00Z'));
 function appShare(site) {
   let lit = 0, n = 0;
-  for (let t = L.RANGE.start.getTime(); t < L.RANGE.end.getTime(); t += 36e5) { n++; if (L.sun(site, new Date(t)).visibleFrac > 0) lit++; }
+  for (let t = FROM; t < L.RANGE.end.getTime(); t += 36e5) { n++; if (L.sun(site, new Date(t)).visibleFrac > 0) lit++; }
   return lit / n;
 }
 const pct = v => (100 * v).toFixed(1).padStart(5) + ' %';

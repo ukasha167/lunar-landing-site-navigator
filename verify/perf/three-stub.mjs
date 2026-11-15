@@ -1,5 +1,6 @@
 // Stand-in for the parts of three@0.169.0 that moon3d.js touches on the CPU, so Node can load it.
 // Vector3 and DataUtils.toHalfFloat copy three's arithmetic, so results match the browser bit for bit.
+// Written with Claude Code (an AI coding agent) at the team's direction. See README.md, "Use of AI".
 export class Vector3 {
   constructor(x = 0, y = 0, z = 0) { this.x = x; this.y = y; this.z = z; }
   set(x, y, z) { this.x = x; this.y = y; this.z = z; return this; }

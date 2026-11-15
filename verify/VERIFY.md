@@ -4,7 +4,7 @@ The agent runs this after every change. The tester runs it in full on Saturday 1
 
 ## 1. Numbers match NASA
 
-- [ ] `node verify/accuracy.mjs` passes every row (Sun and Earth direction within 0.01 deg of JPL Horizons at all 17 sites; share of time up within 1 percentage point; rise and set times within 1 percent)
+- [ ] `node verify/accuracy.mjs` passes every row (Sun and Earth direction within 0.01 deg of JPL Horizons at all 25 sites; share of time up within 1 percentage point; rise and set times within 1 percent)
 
 ## 2. It loads
 

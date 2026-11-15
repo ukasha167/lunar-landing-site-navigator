@@ -5,6 +5,7 @@
 // 0.5 mm, because the new code finds a point on the polar map without trig, which can move the last bit.
 //
 // Run: node verify/perf.mjs        No internet needed. About 15 s on an M1.
+// Written with Claude Code (an AI coding agent) at the team's direction. See README.md, "Use of AI".
 import { readFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 import vm from 'node:vm';
