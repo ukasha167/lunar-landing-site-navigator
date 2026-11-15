@@ -18,7 +18,7 @@
      Firefox and Zen fetch the modules from that header before reading the import map, fail to find "three",
      and the page stays empty. -->
 
-<link rel="modulepreload" href="lib/app3d.js?v=15" data-do-not-generate-a-link-header>
+<link rel="modulepreload" href="lib/app3d.js?v=17" data-do-not-generate-a-link-header>
 <link rel="modulepreload" href="lib/moon3d.js?v=10" data-do-not-generate-a-link-header>
 <link rel="modulepreload" href="lib/real-ground.js?v=6" data-do-not-generate-a-link-header>
 <link rel="modulepreload" href="lib/height-pack.js?v=2" data-do-not-generate-a-link-header>
@@ -269,8 +269,18 @@
     bottom: 8px;
     z-index: 4;
   }
-  .info-btn {
-    anchor-name: --info-btn;
+  .info-btn { anchor-name: --info-btn; }
+  /* turns the Moon back to the view the page opened with; sits to the right of the (i) button */
+  .reset-btn {
+    position: absolute;
+    left: 42px;
+    bottom: 8px;
+    z-index: 4;
+    opacity: 0.55;
+    transition: opacity 160ms var(--ease);
+  }
+  .globe:hover .reset-btn, .reset-btn:focus-visible { opacity: 1; }
+  .info-btn, .reset-btn {
     width: 28px;
     height: 28px;
     padding: 0;
@@ -279,7 +289,7 @@
     border: 1px solid var(--line-strong);
     color: var(--text-2);
   }
-  .info-btn:hover,
+  .info-btn:hover, .reset-btn:hover,
   .info-btn[aria-expanded="true"] {
     background: var(--raised);
     border-color: var(--text-2);
@@ -336,6 +346,22 @@
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
   }
   .pin[hidden] { display: block !important; opacity: 0; }
+  /* longitudes (pole views) or N, E, S and W (other views) just outside the Moon's edge, placed every frame by compass() */
+  #compass {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 3;
+    overflow: hidden;
+  }
+  #compass span {
+    position: absolute;
+    left: 0;
+    top: 0;
+    white-space: nowrap;
+    font: 500 10px/12px 'IBM Plex Mono', monospace;
+    color: var(--muted);
+  }
 
   /* The site letter: the same mark on the Moon, on each column and on each timeline row */
   .letter {
@@ -502,7 +528,7 @@
   }
   /* Small buttons keep their look but take clicks and taps 6 px past each edge (28 px button: 40 px target) */
   .x, .info-btn, .next-btn, .round-btn { position: relative; }
-  .x::after, .info-btn::after, .full-btn::after, .next-btn::after, .round-btn::after { content: ''; position: absolute; inset: -6px; }
+  .x::after, .info-btn::after, .reset-btn::after, .full-btn::after, .next-btn::after, .round-btn::after { content: ''; position: absolute; inset: -6px; }
 
   /* The 3D view is drawn by WebGL into a plain rectangle, so it sits inset in the panel with square corners */
   .view {
@@ -932,6 +958,7 @@
         <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M22 12h-4"/><path d="M6 12H2"/><path d="M12 6V2"/><path d="M12 22v-4"/></svg>
         <span id="globe-hint-text">Click any point on the Moon</span>
       </div>
+      <div id="compass" aria-hidden="true"><span>N</span><span>E</span><span>S</span><span>W</span></div>
       <div id="pins">
         <svg id="pin-lines" class="pin-lines" aria-hidden="true"></svg>
         <div id="pin-items"></div>
@@ -944,6 +971,9 @@
           Heights are NASA maps only. In the 13 Artemis III regions: 5 m maps NASA made from LROC photos and LOLA laser heights. At Apollo 11: a 2 m LROC stereo map. Elsewhere: LOLA, 59 m to 3.8 km per pixel, so the ground there is as smooth as the map. The rover view adds made-up rocks and craters under 4 m, which no map shows. Sun and Earth positions from JPL Horizons.
         </div>
       </div>
+      <button type="button" id="reset-view" class="reset-btn" aria-label="Turn the Moon back to the starting view" title="Turn the Moon back to the starting view">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+      </button>
     </div>
   </section>
 
@@ -1001,7 +1031,7 @@
 
 <script src="lib/lunar.js?v=4"></script>
 <script type="module">
-import { createApp, fmtWhen, pickGlobe, placeName, siteStats } from './lib/app3d.js?v=15';
+import { createApp, fmtWhen, pickGlobe, placeName, siteStats } from './lib/app3d.js?v=17';
 import { createSkyChart } from './lib/sky-chart.js?v=1';
 
 const $ = id => document.getElementById(id), L = window.Lunar;
@@ -1147,6 +1177,7 @@ function clearNotice() {
 const globeEl = $('globe');
 const globeHint = $('globe-hint');
 const globeHintText = $('globe-hint-text');
+const compassEls = [...document.querySelectorAll('#compass span')]; // N, E, S, W
 let lastHoverLL = null;
 let isDraggingGlobe = false;
 
@@ -1525,6 +1556,7 @@ app = await createApp({
   style: 'photo',
   clear: 0x111214,
   maxPlaces: MAX_SITES,
+  globeMargin: 34, // room for the widest label around the Moon ("90°E", 24 px) 6 px off its edge, see compass()
   wallColor: 0x22242a,
   date: START_DATE,
   ephemeris: 'data/ephemeris.json?v=2', // the version must match the preload link in <head>
@@ -1553,7 +1585,7 @@ app = await createApp({
     syncTime(a.date);
     render(a, !!meta?.fast);
   },
-  onRender: a => pins(a),
+  onRender: a => compass(a, pins(a)),
 });
 
 $('globe-load')?.remove();
@@ -1565,8 +1597,14 @@ if (app.dateRange) {
   $('date-picker').min = L.fmtDate(app.dateRange.start);
   $('date-picker').max = L.fmtDate(app.dateRange.end);
 }
-// a shared link with only places away from the south pole turns the Moon to the first of them
-if (START_SITES.every(s => s.lat > -80)) app.focus(START_SITES[0].lat, START_SITES[0].lon, 3.0);
+// the starting view: below the south pole, or, for a shared link with only places away from it, the first of them
+const awayFromPole = START_SITES.length > 0 && START_SITES.every(s => s.lat > -80);
+const homeView = () => awayFromPole ? app.focus(START_SITES[0].lat, START_SITES[0].lon, 3.0) : app.focus();
+if (awayFromPole) homeView();
+const resetBtn = $('reset-view');
+// keep presses on the button away from the Moon's drag and click-to-add handlers underneath
+for (const ev of ['pointerdown', 'pointerup', 'pointermove']) resetBtn.addEventListener(ev, e => e.stopPropagation());
+resetBtn.addEventListener('click', homeView);
 
 // Sun and Earth labels in a terrain view: above the body when it is in frame, else on the edge with an arrow toward it
 function updateSkyLabels(p) {
@@ -1851,6 +1889,64 @@ function pins(a) {
     }
   }
   if (lines._svg !== svg) { lines.innerHTML = svg; lines._svg = svg; }
+  return pts;
+}
+
+/*
+  Labels around the Moon, as on NASA's Moon maps.
+  Looking down at a pole (camera above 60 degrees latitude): a polar map's longitudes, 0°, 90°E, 180° and 90°W, each
+  where its meridian meets the Moon's edge. They turn with the Moon. 0° is the middle of the side that faces Earth.
+  Any other view: N, E, S and W as on a globe. N points at the north pole, E is 90 degrees clockwise from N.
+  Each label sits 6 px outside the Moon's edge. It hides when the edge leaves no room for it inside the view, or when
+  a site pin covers it.
+*/
+const POLAR_LABELS = [[0, '0°'], [90, '90°E'], [180, '180°'], [-90, '90°W']];
+const POLAR_SIN = Math.sin(60 * Math.PI / 180);
+const wrapAngle = x => Math.atan2(Math.sin(x), Math.cos(x));
+function compass(a, pinPts = []) {
+  const cam = a.camera, W = globeEl.clientWidth, H = globeEl.clientHeight;
+  cam.updateMatrixWorld();
+  const m = cam.matrixWorld.elements, d = cam.position.length(), c = cam.position.toArray().map(v => v / d);
+  // a world direction on screen: along the camera's right (m[0..2]) and up (m[4..6]) axes; screen y grows downward
+  const toScreen = v => [v[0] * m[0] + v[1] * m[1] + v[2] * m[2], -(v[0] * m[4] + v[1] * m[5] + v[2] * m[6])];
+  // the Moon (radius 1, at the view's centre) seen from distance d fills a cone of half-angle asin(1 / d)
+  const rim = Math.tan(Math.asin(Math.min(1, 1 / d))) / Math.tan(cam.fov * Math.PI / 360) * H / 2;
+  let labels;
+  if (Math.abs(c[1]) >= POLAR_SIN) {
+    labels = POLAR_LABELS.map(([lon, text]) => {
+      // the meridian's points p = cos(lat) * mv + sin(lat) * (0, 1, 0); the Moon's edge is where p . c = 1 / d
+      const L = lon * Math.PI / 180, mv = [Math.cos(L), 0, -Math.sin(L)];
+      const A = mv[0] * c[0] + mv[2] * c[2], B = c[1], k = 1 / d, len = Math.hypot(A, B);
+      if (len <= k) return { text, dir: null };
+      const base = Math.atan2(B, A), half = Math.acos(k / len);
+      // one pole is in view and the other is not, so exactly one of the two answers is a real latitude
+      const lat = [wrapAngle(base + half), wrapAngle(base - half)].find(x => Math.abs(x) <= Math.PI / 2);
+      if (lat === undefined) return { text, dir: null };
+      return { text, dir: toScreen([Math.cos(lat) * mv[0], Math.sin(lat), Math.cos(lat) * mv[2]]) };
+    });
+  } else {
+    const [nx, ny] = toScreen([0, 1, 0]);
+    labels = [['N', [nx, ny]], ['E', [-ny, nx]], ['S', [-nx, -ny]], ['W', [ny, -nx]]].map(([text, dir]) => ({ text, dir }));
+  }
+  labels.forEach(({ text, dir }, k) => {
+    const el = compassEls[k];
+    if (el.textContent !== text) el.textContent = text;
+    const len = dir ? Math.hypot(dir[0], dir[1]) : 0;
+    let show = len > 1e-6, x = 0, y = 0;
+    if (show) {
+      // 10 px IBM Plex Mono: every character is 6 px wide; push the label out until its nearest side is 6 px off the edge
+      const dx = dir[0] / len, dy = dir[1] / len, w = text.length * 6, h = 12;
+      const r = rim + 6 + Math.abs(dx) * w / 2 + Math.abs(dy) * h / 2;
+      x = W / 2 + dx * r - w / 2; y = H / 2 + dy * r - h / 2;
+      show = x >= 2 && y >= 2 && x + w <= W - 2 && y + h <= H - 2
+        // a site pin (24 px circle) on top of the label wins: a site at a pole sits on the Moon's edge in a side view
+        && !pinPts.some(q => q.visible && Math.hypot(Math.max(x - q.lx, 0, q.lx - x - w), Math.max(y - q.ly, 0, q.ly - y - h)) < 14);
+    }
+    if (el.hidden !== !show) el.hidden = !show;
+    if (!show) return;
+    const t = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+    if (el._t !== t) { el.style.transform = t; el._t = t; }
+  });
 }
 
 function addSite(lat, lon, name) {
