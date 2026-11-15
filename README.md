@@ -27,7 +27,7 @@ Then open http://localhost:5318.
 
 | Folder | What is in it |
 |---|---|
-| `site/` | The app judges open. GitHub Pages publishes only this folder. |
+| `site/` | The app judges open. Cloudflare Pages and GitHub Pages publish only this folder. It loads nothing from other hosts: Three.js is in `site/vendor/`, the fonts in `site/fonts/`. |
 | `site/lib/` | `moon3d.js` (terrain, shadows, rendering), `app3d.js` (clicks, places, time), `lunar.js` (Sun and Earth positions, site stats, the go/no-go rule), `sky-chart.js` (the sky chart), `rover*.js` (rover mode) |
 | `site/assets/` | NASA LOLA elevation and LROC colour, resampled; NASA maps around the built-in sites (`sites/`); Earth texture |
 | `site/data/` | Sun and Earth positions downloaded from JPL Horizons |
@@ -77,4 +77,4 @@ The code is under the MIT licence (`LICENSE`). The NASA data keep their own term
 
 ## Credits
 
-Three.js (MIT), Lucide icons (ISC), fonts from Google Fonts (SIL Open Font License), Earth texture from NASA's Blue Marble (the copy in the Three.js examples).
+Three.js (MIT), Lucide icons (ISC), Archivo and IBM Plex Mono fonts (SIL Open Font License, copies in `site/fonts/`), Earth texture from NASA's Blue Marble (the copy in the Three.js examples).
