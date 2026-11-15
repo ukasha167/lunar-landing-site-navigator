@@ -12,6 +12,7 @@
 //
 // src is the file as an ArrayBuffer, or a fetch response's body stream. A stream is unzipped while it downloads,
 // which takes about 28 ms of the global grid's decode off the wait after the last byte (M1).
+// Written with Claude Code (an AI coding agent) at the team's direction. See README.md, "Use of AI".
 
 export async function unpackHeights(src) {
   const stream = (src instanceof ArrayBuffer ? new Blob([src]).stream() : src).pipeThrough(new DecompressionStream('gzip'));

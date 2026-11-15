@@ -14,6 +14,7 @@
   Dust. No air on the Moon, so dust thrown by a wheel flies a clean arc and falls back as fast as a rock would:
   p = p0 + v t + g t^2 / 2 with g = 1.62 m/s^2, worked out per particle in the vertex shader from where and
   when it was thrown. The CPU only writes new particles into a ring of 2048.
+  Written with Claude Code (an AI coding agent) at the team's direction. See README.md, "Use of AI".
 */
 import { G } from './rover-physics.js?v=4';
 

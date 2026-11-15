@@ -12,6 +12,7 @@
   previous pixel (mod 65536), low bytes then high bytes, gzipped.
 
   No dependencies.
+  Written with Claude Code (an AI coding agent) at the team's direction. See README.md, "Use of AI".
 */
 const R_M = 1737400, R2D = 180 / Math.PI;
 let indexPromise = null, indexData = null;
@@ -22,7 +23,7 @@ async function gunzip(buf) { return new Response(new Blob([buf]).stream().pipeTh
 
 /** site/assets/sites/index.json, loaded once. base: the folder that holds sites/ (default: next to this page). */
 export function loadSiteIndex(base = 'assets/') {
-  indexPromise ||= bytes(base + 'sites/index.json').then(b => (indexData = JSON.parse(new TextDecoder().decode(b))))
+  indexPromise ||= bytes(base + 'sites/index.json?v=2').then(b => (indexData = JSON.parse(new TextDecoder().decode(b))))
     .catch(e => { indexPromise = null; throw e; });
   return indexPromise;
 }

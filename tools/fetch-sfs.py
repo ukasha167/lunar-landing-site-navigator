@@ -10,6 +10,7 @@
 # Files land in tools/.cache/sfs/. A rerun skips files already there.
 #
 # Run: python3 tools/fetch-sfs.py        Needs only the Python standard library.
+# Written with Claude Code (an AI coding agent) at the team's direction. See README.md, "Use of AI".
 import json, os, struct, sys, urllib.request, zlib
 from concurrent.futures import ThreadPoolExecutor
 

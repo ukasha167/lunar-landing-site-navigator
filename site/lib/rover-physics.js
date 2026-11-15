@@ -12,6 +12,7 @@
   is left. verify/rover.mjs checks each of these numbers.
 
   Height function: H(x, z) in metres, x east, z south, y up. Body axes: x right, y up, -z forward.
+  Written with Claude Code (an AI coding agent) at the team's direction. See README.md, "Use of AI".
 */
 export const MASS = 450, G = 1.62, DT = 1 / 120;
 export const COM = 0.25;                 // the body's origin is its centre of mass, 0.25 m below the chassis centre (batteries sit low)

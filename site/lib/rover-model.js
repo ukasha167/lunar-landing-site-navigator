@@ -10,6 +10,7 @@
   vertex, so a gold foil blanket, a glass lens and a painted panel need no separate materials.
 
   Units: metres. Origin: the centre of mass. Axes: x right, y up, -z forward.
+  Written with Claude Code (an AI coding agent) at the team's direction. See README.md, "Use of AI".
 */
 import { WHEELS, R_WHEEL } from './rover-physics.js?v=4';
 

@@ -1,5 +1,6 @@
 // Packs the raw uint16 height grids into site/assets/*.pack (see site/lib/height-pack.js).
 // Run: node tools/pack-heights.mjs   Exits 1 if any file does not round-trip byte for byte.
+// Written with Claude Code (an AI coding agent) at the team's direction. See README.md, "Use of AI".
 import { readFileSync, writeFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';

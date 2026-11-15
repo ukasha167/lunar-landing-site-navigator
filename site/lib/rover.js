@@ -6,7 +6,8 @@
   holds the place (real-ground.js): NASA's 5 m shape-from-shading maps of the 13 Artemis III candidate regions,
   or the 2 m LROC stereo map of Apollo 11. It drives inside that map; beyond it the ground is the site's NASA block
   map (59 to 118 m), then LOLA's 625 m or 3.8 km grid. The one thing made up: craters under 4 m across and rocks
-  under 1.3 m, which no map shows; the screen says so.
+  under 1.3 m, which no map shows; the screen says so. The surface grain texture, the wheel tracks and the dust are
+  visual effects, not map data.
 
   Terrain drawing (a geometry clipmap). 14 square grids of 128 x 128 points, all centred on the rover. Level 0
   has 0.5 m cells; each next level doubles the cell, so level 13 has 4 km cells and reaches 262 km, all of it
@@ -28,13 +29,14 @@
 
   Physics: rover-physics.js (a raycast vehicle in lunar gravity), tested by verify/rover.mjs. It costs 0.05 ms of a
   frame. Model: rover-model.js. Wheel tracks, dust and dynamic resolution: rover-fx.js.
+  Written with Claude Code (an AI coding agent) at the team's direction. See README.md, "Use of AI".
 */
 // No import of moon3d.js: openRover() takes the page's own copy (app.lib). A second copy, loaded under another
 // version number by a cached page, would have no terrain data.
 let THREE, OrbitControls, createEarth, createStars, createSkylineRing;
 import { createVehicle, WHEELS, REST, COM } from './rover-physics.js?v=4';
 import { buildRover } from './rover-model.js?v=2';
-import { loadRealGround } from './real-ground.js?v=5';
+import { loadRealGround } from './real-ground.js?v=6';
 import { createTracks, createDust, createDynamicResolution, TRK_M } from './rover-fx.js?v=4';
 
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
@@ -358,7 +360,20 @@ export const activeRover = () => current;
   options.letter: the site's letter; options.icon(name): the page's icon helper; options.fmtWhen(date).
   Returns { close }.
 */
-export function openRover(app, place, { letter = '', icon = () => '', fmtWhen = d => d.toISOString() } = {}) {
+export function openRover(app, place, opts) {
+  // a throw during setup must not leave the page blank: undo what the setup did, warn, and rethrow
+  const views = app.stage.views.map(v => [v, v.hidden]), dpr = app.stage.maxDpr;
+  try { return build(app, place, opts); } catch (e) {
+    console.warn('Rover setup failed:', e);
+    if (current) current.close();
+    else { document.querySelectorAll('.rover-view, .rover-hud').forEach(n => n.remove()); }
+    document.body.classList.remove('rover-on');
+    for (const [v, h] of views) v.hidden = h;
+    app.stage.maxDpr = dpr; app.stage.request();
+    throw e;
+  }
+}
+function build(app, place, { letter = '', icon = () => '', fmtWhen = d => d.toISOString() } = {}) {
   if (current) current.close();
   if (!document.getElementById('rover-css')) { const st = document.createElement('style'); st.id = 'rover-css'; st.textContent = CSS; document.head.append(st); }
   ({ THREE, OrbitControls, createEarth, createStars } = app.lib);
@@ -724,8 +739,9 @@ export function openRover(app, place, { letter = '', icon = () => '', fmtWhen = 
     sunInfo.margin = skyMargin(sunDir, pos3.x, eyeY, pos3.z); sunInfo.up = sunInfo.margin > 0 && shared.uBlock.value < 0.99;
     earthInfo.margin = skyMargin(earthDir, pos3.x, eyeY, pos3.z); earthInfo.up = earthInfo.margin > 0;
     const a = (v) => `${Math.abs(v).toFixed(1)}°`, eclipse = shared.uBlock.value >= 0.99;
-    const sunLine = eclipse ? 'Earth is hiding the Sun' : sunInfo.up ? `Sunlit · Sun ${a(sunInfo.margin)} above the skyline` : `In shadow · Sun ${a(sunInfo.margin)} below the skyline`;
-    const earthLine = earthInfo.up ? `Earth in view · ${a(earthInfo.margin)} above the skyline` : `No radio link · Earth ${a(earthInfo.margin)} below the skyline`;
+    const sunEl = Math.asin(sunDir.y) * R2D, earthEl = Math.asin(earthDir.y) * R2D;
+    const sunLine = eclipse ? 'Earth is hiding the Sun' : sunInfo.up ? `Sunlit · Sun ${a(sunEl)} high, ${a(sunInfo.margin)} above the skyline` : `In shadow · Sun ${a(sunInfo.margin)} below the skyline`;
+    const earthLine = earthInfo.up ? `Earth in view · ${a(earthEl)} high, ${a(earthInfo.margin)} above the skyline` : `No radio link · Earth ${a(earthInfo.margin)} below the skyline`;
     // the pills only change colour and one word; the full sentence is in Specs and the pill's tooltip
     setPill('.rv-sun', !sunInfo.up, eclipse ? 'Eclipse' : sunInfo.up ? 'Sun' : 'Shadow', sunLine);
     setPill('.rv-earth', !earthInfo.up, earthInfo.up ? 'Earth' : 'No radio', earthLine);
@@ -858,8 +874,9 @@ export function openRover(app, place, { letter = '', icon = () => '', fmtWhen = 
   // --- input ---
   const KEYS = ['w', 'a', 's', 'd', ' ', 'shift', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'];
   const typing = e => e.target instanceof HTMLElement && (e.target.isContentEditable || /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName));
+  const onControl = e => e.target instanceof HTMLElement && /^(BUTTON|INPUT|SELECT|TEXTAREA|A)$/.test(e.target.tagName);
   function onKeyDown(e) {
-    if (typing(e) || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (typing(e) || (onControl(e) && (e.key === ' ' || e.key.startsWith('Arrow'))) || e.metaKey || e.ctrlKey || e.altKey) return;
     const k = e.key.toLowerCase();
     if (KEYS.includes(k)) { e.preventDefault(); keys.add(k); }
     else if (k === 'r') { spawn(pos3.x, pos3.z, true); say('Rover put upright'); }
@@ -900,7 +917,6 @@ export function openRover(app, place, { letter = '', icon = () => '', fmtWhen = 
   // a full-screen moving view: 1.5 pixels per CSS pixel is sharp enough and draws 44% fewer pixels than 2;
   // dynamic resolution lowers it further on a slow GPU
   const keepDpr = stage.maxDpr; stage.maxDpr = DPR_TOP;
-  readSky(); lastSunKey = `${relief.sunLocal.x},${relief.sunLocal.y},${relief.sunLocal.z},${relief.uniforms.uBlock.value}`;
   let view = null;
   const api = {
     state: S, vehicle: veh, debug: { data, levels, H, N, dyn, rover, sm, smRT },
@@ -923,11 +939,15 @@ export function openRover(app, place, { letter = '', icon = () => '', fmtWhen = 
     },
   };
   current = api;
+  readSky(); lastSunKey = `${relief.sunLocal.x},${relief.sunLocal.y},${relief.sunLocal.z},${relief.uniforms.uBlock.value}`;
   // load the NASA heights for this place, let the "Building the ground" note paint, then build
   (async () => {
-    const real = await loadRealGround(place.lat, place.lon).catch(e => { console.warn('NASA map did not load:', e.message); return null; });
+    let netFail = false;
+    const real = await loadRealGround(place.lat, place.lon).catch(e => { console.warn('NASA map did not load:', e.message); netFail = true; return null; });
     if (current !== api) return;
+    if (netFail) { $('.rv-wait').textContent = 'Could not download the NASA map. Check the connection and press Exit.'; return; }
     if (!real) { $('.rv-wait').textContent = 'Not enough detail for the rover here: it needs a NASA map with 5 m pixels or finer.'; return; }
+    try {
     ground = makeGround(relief.tile.field, app.lib, real);
     veh.setEdge(ground.reach);
     const f = real[0], km = v => (v / 1000).toFixed(1).replace(/\.0$/, '');
@@ -937,6 +957,7 @@ export function openRover(app, place, { letter = '', icon = () => '', fmtWhen = 
     await new Promise(r => setTimeout(r, 30));
     if (current !== api) return;
     const [sx, sz] = flattest(0, 0); spawn(sx, sz, false); updateTerrain(pos3.x, pos3.z);
+    } catch (e) { console.warn('Rover ground failed:', e); const w = $('.rv-wait'); if (w) w.textContent = 'Could not build the ground here. Press Exit.'; return; }
     camera.position.copy(pos3).addScaledVector(new THREE.Vector3(0, 0, 1).applyQuaternion(quat), 9).add(new THREE.Vector3(0, 3.2, 0));
     lastTarget.copy(pos3).add(new THREE.Vector3(0, 0.7, 0)); controls.target.copy(lastTarget); controls.update();
     $('.rv-wait').remove();

@@ -2,12 +2,13 @@
   app3d.js: the shared app layer for prototypes 11 to 20.
   Owns the scene (Moon, Earth, Sun), picking, the list of picked places, time, and relief views.
   Each prototype supplies its own look (shader style, colours) and its own layout.
+  Written with Claude Code (an AI coding agent) at the team's direction. See README.md, "Use of AI".
 */
 import { THREE, OrbitControls, loadMoonData, createGlobe, createEarth, createSun, createStars, createRelief, createSkylineRing,
   Stage, pickGlobe, onTap, sunDir, earthDir, llToVec, placeName, siteStats, earthBlocksSun, addDetail, removeDetail } from './moon3d.js?v=10';
 export * from './moon3d.js?v=10';
 import * as M3 from './moon3d.js?v=10';
-import { loadSiteIndex, dataAt, loadPatch, dropPatch, patchHolds } from './real-ground.js?v=5';
+import { loadSiteIndex, dataAt, loadPatch, dropPatch, patchHolds } from './real-ground.js?v=6';
 export { dataAt };
 const L = window.Lunar;
 

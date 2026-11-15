@@ -21,6 +21,7 @@
   from window.Lunar (JPL Horizons table, see lunar.js).
 
   Rendering is on demand: nothing draws unless something changed.
+  Written with Claude Code (an AI coding agent) at the team's direction. See README.md, "Use of AI".
 */
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
