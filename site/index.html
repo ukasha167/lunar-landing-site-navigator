@@ -9,21 +9,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Lunar landing windows</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='%23111214'/%3E%3Cpath d='M8 1a7 7 0 0 1 0 14z' fill='%23eef0f5'/%3E%3C/svg%3E">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.min.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"}}</script>
+<!-- Three.js and the fonts are served from this site (vendor/, fonts/), so the page needs no other host. -->
+<script type="importmap">{"imports":{"three":"./vendor/three-0.169.0/three.module.min.js","three/addons/":"./vendor/three-0.169.0/"}}</script>
 <!-- Start every module and data file now. Without these the browser finds each file only after the one that
      imports or fetches it has arrived: 4 round trips of modules before the first data download.
-     The URLs must match the imports exactly, ?v= included: bump them here whenever an import's number changes. -->
-<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-<link rel="modulepreload" href="lib/app3d.js?v=14">
-<link rel="modulepreload" href="lib/moon3d.js?v=10">
-<link rel="modulepreload" href="lib/real-ground.js?v=6">
-<link rel="modulepreload" href="lib/height-pack.js?v=2">
-<link rel="modulepreload" href="lib/sky-chart.js?v=1">
-<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.min.js">
-<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/controls/OrbitControls.js">
+     The URLs must match the imports exactly, ?v= included: bump them here whenever an import's number changes.
+     Keep data-do-not-generate-a-link-header: without it Cloudflare Pages copies these lines into an HTTP Link header,
+     Firefox and Zen fetch the modules from that header before reading the import map, fail to find "three",
+     and the page stays empty. -->
+
+<link rel="modulepreload" href="lib/app3d.js?v=15" data-do-not-generate-a-link-header>
+<link rel="modulepreload" href="lib/moon3d.js?v=10" data-do-not-generate-a-link-header>
+<link rel="modulepreload" href="lib/real-ground.js?v=6" data-do-not-generate-a-link-header>
+<link rel="modulepreload" href="lib/height-pack.js?v=2" data-do-not-generate-a-link-header>
+<link rel="modulepreload" href="lib/sky-chart.js?v=1" data-do-not-generate-a-link-header>
+<link rel="modulepreload" href="vendor/three-0.169.0/three.module.min.js" data-do-not-generate-a-link-header>
+<link rel="modulepreload" href="vendor/three-0.169.0/controls/OrbitControls.js" data-do-not-generate-a-link-header>
 <!-- The 4096 px colour map is left out on purpose: moon3d.js loads it after these, then swaps it in. -->
 <link rel="preload" href="assets/moon_height_8ppd.pack" as="fetch" crossorigin>
 <link rel="preload" href="assets/south_pole_625m.pack" as="fetch" crossorigin>
@@ -33,7 +34,16 @@
 <script>if (!/[#&]s=/.test(location.hash)) for (const id of ['ridge', 'amundsen']) { const l = document.createElement('link'); l.rel = 'preload'; l.as = 'fetch'; l.crossOrigin = ''; l.href = `assets/sites/${id}_block.bin.gz`; document.head.append(l); }</script>
 <link rel="preload" href="assets/moon_color_1k.webp" as="image" crossorigin>
 <link rel="preload" href="assets/earth_512.webp" as="image" crossorigin>
+<link rel="preload" href="fonts/archivo-400.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/ibm-plex-mono-400.woff2" as="font" type="font/woff2" crossorigin>
 <style>
+  /* Latin subsets from Google Fonts, same files and character range as before (fonts/OFL-*.txt). */
+  @font-face { font-family: Archivo; font-weight: 400; font-display: swap; src: url(fonts/archivo-400.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+  @font-face { font-family: Archivo; font-weight: 500; font-display: swap; src: url(fonts/archivo-500.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+  @font-face { font-family: Archivo; font-weight: 600; font-display: swap; src: url(fonts/archivo-600.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+  @font-face { font-family: 'IBM Plex Mono'; font-weight: 400; font-display: swap; src: url(fonts/ibm-plex-mono-400.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+  @font-face { font-family: 'IBM Plex Mono'; font-weight: 500; font-display: swap; src: url(fonts/ibm-plex-mono-500.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+  @font-face { font-family: 'IBM Plex Mono'; font-weight: 600; font-display: swap; src: url(fonts/ibm-plex-mono-600.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
   :root {
     --bg: #111214;
     --surface: #18191c;
@@ -991,7 +1001,7 @@
 
 <script src="lib/lunar.js?v=4"></script>
 <script type="module">
-import { createApp, fmtWhen, pickGlobe, placeName, siteStats } from './lib/app3d.js?v=14';
+import { createApp, fmtWhen, pickGlobe, placeName, siteStats } from './lib/app3d.js?v=15';
 import { createSkyChart } from './lib/sky-chart.js?v=1';
 
 const $ = id => document.getElementById(id), L = window.Lunar;

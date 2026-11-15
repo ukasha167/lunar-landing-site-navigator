@@ -227,4 +227,4 @@ export function fmtWhen(d) {
   return `${d.getUTCDate()} ${M[d.getUTCMonth()]} ${d.getUTCFullYear()}, ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`;
 }
 
-export const IMPORTS = `<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"}}</script>`;
+export const IMPORTS = `<script type="importmap">{"imports":{"three":"./vendor/three-0.169.0/three.module.min.js","three/addons/":"./vendor/three-0.169.0/"}}</script>`;
