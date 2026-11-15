@@ -22,6 +22,7 @@
 #
 # Run: python3 -m venv tools/.venv && tools/.venv/bin/pip install numpy tifffile imagecodecs
 #      tools/.venv/bin/python tools/build-sites.py
+# Written with Claude Code (an AI coding agent) at the team's direction. See README.md, "Use of AI".
 import base64, glob, gzip, json, logging, math, os, re, struct, sys, urllib.request
 from concurrent.futures import ThreadPoolExecutor
 import numpy as np, tifffile
@@ -229,11 +230,19 @@ REGION_IDS = {  # NASA's region number and name -> our id and short name
     10: ('leibnitz', 'Leibnitz Beta Plateau', 'Leibnitz beta'), 11: ('malap', 'Malapert Massif', 'Malapert'),
     12: ('kocher', 'de Gerlache-Kocher Massif', 'Kocher massif'),
 }
-PAST = [  # past landings: coordinates as before, best map available for each
-    {'id': 'mouton', 'name': 'Mons Mouton (IM-2)', 'short': 'Mons Mouton', 'lat': -84.80, 'lon': 29.2},
-    {'id': 'ch3', 'name': 'Shiv Shakti (Chandrayaan-3)', 'short': 'Shiv Shakti', 'lat': -69.37, 'lon': 32.32},
-    {'id': 'ce6', 'name': "Chang'e-6, Apollo basin", 'short': "Chang'e-6", 'lat': -41.64, 'lon': -153.99},
+PAST = [  # past landings, in landing date order: coordinates as published by LROC / NSSDC / JAXA, best map available for each
     {'id': 'a11', 'name': 'Tranquility Base (Apollo 11)', 'short': 'Apollo 11', 'lat': 0.674, 'lon': 23.473},
+    {'id': 'a12', 'name': 'Ocean of Storms (Apollo 12)', 'short': 'Apollo 12', 'lat': -3.0124, 'lon': -23.4216},
+    {'id': 'a14', 'name': 'Fra Mauro (Apollo 14)', 'short': 'Apollo 14', 'lat': -3.6453, 'lon': -17.4714},
+    {'id': 'a15', 'name': 'Hadley Rille (Apollo 15)', 'short': 'Apollo 15', 'lat': 26.1322, 'lon': 3.6339},
+    {'id': 'a16', 'name': 'Descartes (Apollo 16)', 'short': 'Apollo 16', 'lat': -8.9730, 'lon': 15.5002},
+    {'id': 'a17', 'name': 'Taurus-Littrow (Apollo 17)', 'short': 'Apollo 17', 'lat': 20.1908, 'lon': 30.7717},
+    {'id': 'ce4', 'name': 'Von K\u00e1rm\u00e1n (Chang\'e-4)', 'short': "Chang'e-4", 'lat': -45.4561, 'lon': 177.5885},
+    {'id': 'ch3', 'name': 'Shiv Shakti (Chandrayaan-3)', 'short': 'Shiv Shakti', 'lat': -69.37, 'lon': 32.32},
+    {'id': 'slim', 'name': 'Shioli (SLIM)', 'short': 'SLIM', 'lat': -13.3160, 'lon': 25.2510},
+    {'id': 'ce6', 'name': "Chang'e-6, Apollo basin", 'short': "Chang'e-6", 'lat': -41.64, 'lon': -153.99},
+    {'id': 'bg1', 'name': 'Mare Crisium (Blue Ghost 1)', 'short': 'Blue Ghost 1', 'lat': 18.5622, 'lon': 61.8103},
+    {'id': 'mouton', 'name': 'Mons Mouton (IM-2)', 'short': 'Mons Mouton', 'lat': -84.80, 'lon': 29.2},
 ]
 CITE = {
     'sfs': 'NASA 5 m shape-from-shading map, Artemis III region (Bertone et al. 2026, PGDA product 104)',
