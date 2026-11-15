@@ -1,6 +1,6 @@
 # Data from JPL Horizons
 
-`ephemeris.json` holds the position of the Sun and of Earth relative to the Moon, every 6 hours from 1 Jan 2026 00:00 UTC to 5 Mar 2031 00:00 UTC (7,557 rows). `site/lib/lunar.js` reads it.
+`ephemeris.json` holds the position of the Sun and of Earth relative to the Moon, every 6 hours from 1 Jan 2023 00:00 UTC to 5 Mar 2031 00:00 UTC (11,941 rows). `site/lib/lunar.js` reads it.
 
 ## What is in the file
 
@@ -18,7 +18,7 @@ Two requests to https://ssd.jpl.nasa.gov/api/horizons.api, one with `COMMAND='10
 ```
 format=json  OBJ_DATA='NO'  MAKE_EPHEM='YES'  EPHEM_TYPE='OBSERVER'
 CENTER='coord@301'  COORD_TYPE='GEODETIC'  SITE_COORD='0,0,0'
-START_TIME='2026-01-01 00:00'  STOP_TIME='2031-03-05 00:00'  STEP_SIZE='6 h'
+START_TIME='2023-01-01 00:00'  STOP_TIME='2031-03-05 00:00'  STEP_SIZE='6 h'
 QUANTITIES='4,20'  ANG_FORMAT='DEG'  CSV_FORMAT='YES'  RANGE_UNITS='KM'  EXTRA_PREC='YES'
 ```
 
@@ -35,7 +35,7 @@ Because the table starts from what Horizons reports at a point on the surface, i
 ## Rebuild it
 
 ```bash
-node tools/fetch-ephemeris.mjs
+node tools/fetch-ephemeris.mjs "2023-01-01 00:00" "2031-03-05 00:00" 6
 ```
 
-Optional arguments: start, stop, step in hours, output file. Then run `node verify/accuracy.mjs` to check the result against Horizons.
+Arguments: start, stop, step in hours, output file. The defaults in the script still start in 2026, so pass the start and stop to get this file. Then run `node verify/accuracy.mjs` to check the result against Horizons.

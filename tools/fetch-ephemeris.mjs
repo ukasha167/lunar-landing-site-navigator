@@ -9,6 +9,7 @@
 //
 // Run: node tools/fetch-ephemeris.mjs [start] [stop] [step hours] [out file]
 // Defaults cover 2026 to 2030 plus 60 days, every 6 hours.
+// Written with Claude Code (an AI coding agent) at the team's direction. See README.md, "Use of AI".
 import { writeFileSync } from 'node:fs';
 
 const [START = '2026-01-01 00:00', STOP = '2031-03-05 00:00', STEP_H = '6', OUT = new URL('../site/data/ephemeris.json', import.meta.url).pathname] = process.argv.slice(2);
