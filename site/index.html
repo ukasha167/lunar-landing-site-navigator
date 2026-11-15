@@ -1,7 +1,11 @@
 <!doctype html>
 <html lang="en">
 <head>
+<!-- Written with Claude Code (an AI coding agent) at the team's direction. See README.md, "Use of AI". -->
 <meta charset="utf-8">
+<meta name="generator" content="Written with Claude Code (an AI coding agent) at the team's direction">
+<meta name="description" content="Compare Moon landing sites by when the Sun and Earth are above each site's real skyline. NASA Space Apps Challenge 2026.">
+<link rel="license" href="https://github.com/ukasha167/lunar-landing-site-navigator/blob/main/LICENSE">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Lunar landing windows</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='%23111214'/%3E%3Cpath d='M8 1a7 7 0 0 1 0 14z' fill='%23eef0f5'/%3E%3C/svg%3E">
@@ -13,19 +17,20 @@
      imports or fetches it has arrived: 4 round trips of modules before the first data download.
      The URLs must match the imports exactly, ?v= included: bump them here whenever an import's number changes. -->
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-<link rel="modulepreload" href="lib/app3d.js?v=13">
+<link rel="modulepreload" href="lib/app3d.js?v=14">
 <link rel="modulepreload" href="lib/moon3d.js?v=10">
-<link rel="modulepreload" href="lib/real-ground.js?v=5">
+<link rel="modulepreload" href="lib/real-ground.js?v=6">
 <link rel="modulepreload" href="lib/height-pack.js?v=2">
+<link rel="modulepreload" href="lib/sky-chart.js?v=1">
 <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.min.js">
 <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/controls/OrbitControls.js">
 <!-- The 4096 px colour map is left out on purpose: moon3d.js loads it after these, then swaps it in. -->
 <link rel="preload" href="assets/moon_height_8ppd.pack" as="fetch" crossorigin>
 <link rel="preload" href="assets/south_pole_625m.pack" as="fetch" crossorigin>
-<link rel="preload" href="data/ephemeris.json" as="fetch" crossorigin>
-<link rel="preload" href="assets/sites/index.json" as="fetch" crossorigin>
-<link rel="preload" href="assets/sites/ridge_block.bin.gz" as="fetch" crossorigin>
-<link rel="preload" href="assets/sites/amundsen_block.bin.gz" as="fetch" crossorigin>
+<link rel="preload" href="data/ephemeris.json?v=2" as="fetch" crossorigin>
+<link rel="preload" href="assets/sites/index.json?v=2" as="fetch" crossorigin>
+<!-- the opening sites' ground, unless a shared link (#...s=) names other sites -->
+<script>if (!/[#&]s=/.test(location.hash)) for (const id of ['ridge', 'amundsen']) { const l = document.createElement('link'); l.rel = 'preload'; l.as = 'fetch'; l.crossOrigin = ''; l.href = `assets/sites/${id}_block.bin.gz`; document.head.append(l); }</script>
 <link rel="preload" href="assets/moon_color_1k.webp" as="image" crossorigin>
 <link rel="preload" href="assets/earth_512.webp" as="image" crossorigin>
 <style>
@@ -504,7 +509,7 @@
     cursor: grab;
   }
   .view-3d:active { cursor: grabbing; }
-  .full-btn {
+  .full-btn, .sky-btn {
     position: absolute;
     top: 8px;
     right: 8px;
@@ -514,6 +519,12 @@
     padding: 0;
     background: rgba(24, 25, 28, 0.88);
   }
+  .sky-btn { right: 48px; }
+  .sky-btn::after { content: ''; position: absolute; inset: -4px; }
+  .sky-btn[aria-pressed="true"] { border-color: var(--text-2); }
+  /* The sky chart sits under the WebGL canvas; the terrain view is skipped while it shows, so the canvas is clear there */
+  .sky-chart { position: absolute; inset: 0; }
+  .view.sky-on .sky-lbl { display: none; }
   .sky-lbl {
     position: absolute;
     left: 0;
@@ -540,9 +551,9 @@
     font-weight: 400;
   }
 
-  /* Sky angles stay out of the way until the pointer is over the view */
-  .sky-lbl { opacity: 0; transition: opacity 160ms var(--ease); }
-  .view:hover .sky-lbl, .view:focus-within .sky-lbl { opacity: 1; }
+  /* The Sun and Earth icons always show where each body is; the words appear only while the pointer is over the view */
+  .sky-lbl span { display: none; }
+  .view:hover .sky-lbl span, .view:focus-within .sky-lbl span { display: inline; }
   .full-btn[aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; }
 
   /* Card footer: two rows of fixed height, so a longer answer never moves the card */
@@ -600,7 +611,7 @@
   .round-btn:hover,
   .round-btn[aria-expanded="true"] { color: var(--text); background: var(--raised); border-color: var(--line-strong); }
 
-  /* Launch slip: one hairline per delay, green good, amber 48 hours or less left, red blocked */
+  /* Launch slip: one hairline per delay, green good, amber too short for the mission, red blocked */
   .slip {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -713,6 +724,10 @@
     display: flex;
     gap: 8px;
   }
+  .mission-sel { width: auto; padding: 0 8px 0 12px; }
+  .icon-btn { width: 36px; padding: 0; }
+  .round-btn.icon-only { width: 24px; padding: 0; }
+  .round-btn.icon-only .ic { width: 13px; height: 13px; }
   .sw {
     flex: none;
     width: 16px;
@@ -788,6 +803,10 @@
   .b-earth { fill: var(--band-earth); }
   .b-land { fill: var(--ok); }
   .b-warn { fill: var(--warn); }
+  /* from the cursor to the next sunset or Earthset: the time left, drawn brighter over the same bar */
+  .b-sun-left { fill: rgba(238, 240, 245, 0.95); }
+  .b-earth-left { fill: rgba(238, 240, 245, 0.62); }
+  .sw-left { background: linear-gradient(90deg, var(--band-sun) 50%, rgba(238, 240, 245, 0.95) 50%); }
   .tl-cur {
     position: absolute;
     top: -2px;
@@ -852,6 +871,9 @@
   @media (max-width: 640px) {
     .coord-form { grid-template-columns: 1fr 1fr; }
     .coord-form button { grid-column: 1 / -1; }
+    /* mission length on its own row, the time buttons under it */
+    .time-steps { flex-wrap: wrap; }
+    .mission-sel { flex: 1 1 100%; }
   }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { transition: none !important; }
@@ -931,16 +953,26 @@
             <div class="legend-list">
               <span><i class="sw sw-sun"></i>Top bar: Sun above the skyline</span>
               <span><i class="sw sw-earth"></i>Middle bar: Earth in view (radio contact)</span>
-              <span><i class="sw sw-land"></i>Bottom bar: good to land, more than 48 hours left</span>
-              <span><i class="sw sw-warn"></i>Bottom bar: 48 hours or less left</span>
+              <span><i class="sw sw-left"></i>Brighter part: time left before it sets</span>
+              <span><i class="sw sw-land"></i>Bottom bar: good to land, Sun and Earth up for the whole mission</span>
+              <span><i class="sw sw-warn"></i>Bottom bar: Sun or Earth sets before the mission ends</span>
               <span class="muted">Drag on any bar to change the time.</span>
             </div>
           </div>
+          <button type="button" id="csv-btn" class="round-btn icon-only" aria-label="Download these 30 days as a table (CSV file)" title="Download these 30 days as a table (CSV file)">
+            <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+          </button>
         </div>
         <div class="time-steps">
+          <select id="mission" class="mission-sel" aria-label="Mission length. Good to land means the Sun and Earth stay up this long." title="Good to land means the Sun and Earth stay up this long">
+            <option value="2">2-day mission</option>
+            <option value="7">7-day mission</option>
+            <option value="14">14-day mission</option>
+          </select>
           <button type="button" id="prev-day" aria-label="One day earlier">&minus;1 day</button>
           <button type="button" id="plus-6h" aria-label="Six hours later">+6 h</button>
           <button type="button" id="next-day" aria-label="One day later">+1 day</button>
+          <button type="button" id="play" class="icon-btn" aria-pressed="false" aria-label="Play, 1 day per second" title="Play, 1 day per second"></button>
         </div>
       </div>
       <div class="tl-body" id="tl-body">
@@ -957,9 +989,10 @@
   </section>
 </div>
 
-<script src="lib/lunar.js?v=3"></script>
+<script src="lib/lunar.js?v=4"></script>
 <script type="module">
-import { createApp, fmtWhen, pickGlobe, placeName, siteStats } from './lib/app3d.js?v=13';
+import { createApp, fmtWhen, pickGlobe, placeName, siteStats } from './lib/app3d.js?v=14';
+import { createSkyChart } from './lib/sky-chart.js?v=1';
 
 const $ = id => document.getElementById(id), L = window.Lunar;
 const cards = new Map();
@@ -972,7 +1005,8 @@ const SLIP = [
   { label: '1 day', short: '+1 day', hours: 24 },
   { label: '3 days', short: '+3 days', hours: 72 },
 ];
-const SLIP_WORDS = { ok: 'good to land', warn: '48 hours or less left', void: 'cannot land' };
+const SLIP_WORDS = { ok: 'good to land', warn: 'too short for the mission', void: 'cannot land' };
+const MISSION_DAYS = [2, 7, 14];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -985,11 +1019,19 @@ const ICONS = {
   earth: '<path d="M21.54 15H17a2 2 0 0 0-2 2v4.54"/><path d="M7 3.34V5a3 3 0 0 0 3 3a2 2 0 0 1 2 2c0 1.1.9 2 2 2a2 2 0 0 0 2-2c0-1.1.9-2 2-2h3.17"/><path d="M11 21.95V18a2 2 0 0 0-2-2a2 2 0 0 1-2-2v-1a2 2 0 0 0-2-2H2.05"/><circle cx="12" cy="12" r="10"/>',
   arrow: '<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
   expand: '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>',
+  sunrise: '<path d="M12 2v8"/><path d="m4.93 10.93 1.41 1.41"/><path d="M2 18h2"/><path d="M20 18h2"/><path d="m19.07 10.93-1.41 1.41"/><path d="M22 22H2"/><path d="m8 6 4-4 4 4"/><path d="M16 18a4 4 0 0 0-8 0"/>',
+  mountain: '<path d="m8 3 4 8 5-5 5 15H2L8 3z"/>',
+  play: '<polygon points="6 3 20 12 6 21 6 3"/>',
+  pause: '<rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/>',
 };
 const icon = (name, cls = '') => `<svg class="ic ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
 
-// The team's rule lives in Lunar.verdict(). Until it is written, this page uses a stand-in rule.
-const useTeamVerdict = L.verdict({ sun: {}, earth: {}, sunChange: {}, earthChange: {} }) !== null;
+// The go/no-go rule is the team's, in Lunar.verdict(). The planner picks the mission length it checks against.
+let missionH = 48;
+const LEVEL = { go: 'ok', marginal: 'warn', 'no-go': 'void' };
+const judge = (sunUp, earthUp, sunH, earthH) => LEVEL[L.verdict(
+  { sun: { up: sunUp }, earth: { up: earthUp }, sunChange: { hours: sunH }, earthChange: { hours: earthH } },
+  { missionHours: missionH }).level];
 
 function fmtDuration(h) {
   if (!isFinite(h)) return '60+ days';
@@ -1000,56 +1042,39 @@ function fmtDuration(h) {
   const d = (h / 24).toFixed(1);
   return `${d} ${Number(d) === 1 ? 'day' : 'days'}`;
 }
-function fmtHours48(h) {
-  const v = h < 10 ? h.toFixed(1) : String(Math.round(h));
-  return `${v} ${Number(v) === 1 ? 'hour' : 'hours'}`;
-}
 const pad2 = n => String(n).padStart(2, '0');
 const fmtShortDT = d => `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}, ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())} UTC`;
 const fmtShortDay = d => `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
 
-// state: 'ok' | 'warn' | 'void'. warn fires when Sun, Earth, or both are up now but <= 48 hours remain.
+// state: 'ok' | 'warn' | 'void', from the team's rule. why: its short reason when the site cannot land now.
 function checkStats(stats) {
-  const v = L.verdict(stats.summary);
-  if (v) {
-    const state = v.level === 'go' ? 'ok' : v.level === 'marginal' ? 'warn' : 'void';
-    return { state, ok: state !== 'void', warn: state === 'warn', sunFlag: null, earthFlag: null, why: v.level === 'go' ? '' : v.reason || '' };
-  }
-  if (!stats.sunUp && !stats.earthUp) {
-    return { state: 'void', ok: false, warn: false, sunFlag: 'block', earthFlag: 'block', why: 'in shadow & Earth hidden' };
-  }
-  if (!stats.sunUp) return { state: 'void', ok: false, warn: false, sunFlag: 'block', earthFlag: null, why: 'in shadow' };
-  if (!stats.earthUp) return { state: 'void', ok: false, warn: false, sunFlag: null, earthFlag: 'block', why: 'Earth not in view' };
-  const sunH = stats.summary.sunChange.hours;
-  const earthH = stats.summary.earthChange.hours;
-  const sunLow = sunH <= 48;
-  const earthLow = earthH <= 48;
-  if (sunLow && earthLow) {
-    const same = Math.abs(sunH - earthH) < 0.5;
-    const why = same
-      ? `Sun & Earth going below in ${fmtHours48(Math.min(sunH, earthH))}`
-      : `Sun & Earth going below in ${fmtHours48(sunH)} & ${fmtHours48(earthH)}`;
-    return { state: 'warn', ok: true, warn: true, sunFlag: 'warn', earthFlag: 'warn', why };
-  }
-  if (sunLow) {
-    return { state: 'warn', ok: true, warn: true, sunFlag: 'warn', earthFlag: null, why: `Sun going below in ${fmtHours48(sunH)}` };
-  }
-  if (earthLow) {
-    return { state: 'warn', ok: true, warn: true, sunFlag: null, earthFlag: 'warn', why: `Earth going below in ${fmtHours48(earthH)}` };
-  }
-  return { state: 'ok', ok: true, warn: false, sunFlag: null, earthFlag: null, why: '' };
+  const v = L.verdict(stats.summary, { missionHours: missionH });
+  return { state: LEVEL[v.level], why: v.reason };
 }
 
-function checkStateAtDate(site, d, useVerdict) {
-  if (useVerdict) {
-    const v = L.verdict(L.summary(site, d));
-    if (v) return v.level === 'go' ? 'ok' : v.level === 'marginal' ? 'warn' : 'void';
-  }
-  if (!L.sun(site, d).up || !L.earth(site, d).up) return 'void';
-  const sunH = L.hoursUntilChange(site, d, 'sun', 48.5).hours;
-  const earthH = L.hoursUntilChange(site, d, 'earth', 48.5).hours;
-  if (sunH <= 48 || earthH <= 48) return 'warn';
-  return 'ok';
+// The rule at any moment: scan forward only as far as the mission needs.
+function checkStateAtDate(site, d) {
+  const sunUp = L.sun(site, d).up, earthUp = L.earth(site, d).up;
+  if (!sunUp || !earthUp) return judge(sunUp, earthUp, 0, 0);
+  const cap = missionH + 0.5;
+  return judge(true, true, L.hoursUntilChange(site, d, 'sun', cap).hours, L.hoursUntilChange(site, d, 'earth', cap).hours);
+}
+
+// Words for a Sun or Earth marker, shown while the pointer is over the terrain view: height above level ground
+// (the solar elevation angle), whether terrain hides it, and the time until that changes.
+function skyWords(name, b, change) {
+  const h = change.hours, dur = isFinite(h) ? fmtDuration(h) : null;
+  const height = b.el >= 0 ? `${b.el.toFixed(1)}° high` : `${Math.abs(b.el).toFixed(1)}° below the horizon`;
+  const hidden = !b.up && b.el >= 0 ? ', behind terrain' : '';
+  const next = name === 'Sun'
+    ? (b.up ? (dur ? `dark in ${dur}` : 'sunlit 60+ days') : (dur ? `light in ${dur}` : 'dark 60+ days'))
+    : (b.up ? (dur ? `sets in ${dur}` : 'in view 60+ days') : (dur ? `rises in ${dur}` : 'hidden 60+ days'));
+  return `${name} ${height}${hidden} · ${next}`;
+}
+// "1.5° high, 2.8° above the skyline": the two angles a planner checks, for the Info popover
+function angleWords(b) {
+  const height = b.el >= 0 ? `${b.el.toFixed(1)}° high` : `${Math.abs(b.el).toFixed(1)}° below the horizon`;
+  return `${height}, ${Math.abs(b.margin).toFixed(1)}° ${b.margin >= 0 ? 'above' : 'below'} the skyline`;
 }
 
 function sunLine(s) {
@@ -1138,8 +1163,21 @@ function refreshGlobeHint(ll, count) {
 
 // Start on 19 Oct 2027, 06:00 UTC: Connecting Ridge can land; Amundsen Rim is dark (Sun below its skyline).
 // Two days later Connecting Ridge's own window starts closing, which the "If late by" line shows.
-const START_DATE = new Date(Date.UTC(2027, 9, 19, 6));
-const START_SITES = ['ridge', 'amundsen'].map(id => L.site(id));
+// A shared link (#t=2027-10-19T06:00&m=2&s=ridge&s=-87.2_-45) opens on its own date, mission and sites instead.
+const HASH = new URLSearchParams(location.hash.slice(1));
+const hashT = Date.parse((HASH.get('t') || '') + 'Z');
+const START_DATE = new Date(Number.isFinite(hashT) ? hashT : Date.UTC(2027, 9, 19, 6));
+const hashSites = HASH.getAll('s').map(v => {
+  const s = L.site(v); if (s) return s;
+  const m = v.match(/^(-?\d+(?:\.\d+)?)_(-?\d+(?:\.\d+)?)$/); if (!m) return null;
+  const lat = +m[1], lon = +m[2];
+  if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+  const nm = placeName(lat, lon);
+  return { lat, lon, name: nm.near || 'Picked point', custom: true };
+}).filter(Boolean).slice(0, 3);
+const START_SITES = hashSites.length ? hashSites : ['ridge', 'amundsen'].map(id => L.site(id));
+if (MISSION_DAYS.includes(+HASH.get('m'))) missionH = +HASH.get('m') * 24;
+$('mission').value = String(missionH / 24);
 let stripStartMs = START_DATE.getTime();
 let axisStartMs = null;
 let app = null;
@@ -1168,39 +1206,22 @@ function syncTime(d) {
 
 function buildStripData(p) {
   const site = p.relief.site;
-  // reuse the hourly samples siteStats() already built when the strip starts at the same moment
-  const base = p.stats?.samples;
-  const samples = base && Math.abs(base[0].t.getTime() - stripStartMs) < 1000
-    ? base
-    : L.sample(site, new Date(stripStartMs), STRIP_HOURS, 1);
-
-  const n = samples.length;
-  const sunUp = new Uint8Array(n), earthUp = new Uint8Array(n), landOk = new Uint8Array(n), landWarn = new Uint8Array(n);
-  for (let i = 0; i < n; i++) {
-    sunUp[i] = samples[i].sun.up ? 1 : 0;
-    earthUp[i] = samples[i].earth.up ? 1 : 0;
-  }
-  const gt48 = (arr, i, which) => {
-    if (i + 48 >= n) return L.hoursUntilChange(site, samples[i].t, which, 48.5).hours > 48;
-    for (let k = i + 1; k <= i + 48; k++) {
-      if (!arr[k]) {
-        if (k === i + 48) return L.hoursUntilChange(site, samples[i].t, which, 48.5).hours > 48;
-        return false;
-      }
-    }
-    if (i + 49 < n && !arr[i + 49]) return L.hoursUntilChange(site, samples[i].t, which, 48.5).hours > 48;
-    return true;
-  };
+  // hourly samples for the 30 days, plus one mission length past the end so every hour on the strip can be judged
+  const all = L.sample(site, new Date(stripStartMs), STRIP_HOURS + missionH + 2, 1);
+  const M = all.length, n = STRIP_HOURS + 1, samples = all.slice(0, n);
+  const sunAll = Uint8Array.from(all, x => x.sun.up ? 1 : 0), earthAll = Uint8Array.from(all, x => x.earth.up ? 1 : 0);
+  // left[i]: how many hourly samples from i on keep sample i's state, so the change comes within left[i] hours
+  const runLeft = a => { const r = new Uint16Array(M); r[M - 1] = 1; for (let i = M - 2; i >= 0; i--) r[i] = a[i] === a[i + 1] ? r[i + 1] + 1 : 1; return r; };
+  const sunLeft = runLeft(sunAll), earthLeft = runLeft(earthAll);
+  // hours until the state changes, exact only where the hourly samples cannot tell it from the mission length
+  const hoursLeft = (left, i, which) => left[i] - 1 > missionH ? Infinity
+    : left[i] <= missionH ? left[i] - 1
+    : L.hoursUntilChange(site, all[i].t, which, missionH + 0.5).hours;
+  const sunUp = sunAll.slice(0, n), earthUp = earthAll.slice(0, n), landOk = new Uint8Array(n), landWarn = new Uint8Array(n);
   for (let i = 0; i < n; i++) {
     if (!sunUp[i] || !earthUp[i]) continue;
-    if (useTeamVerdict) {
-      const st = checkStateAtDate(site, samples[i].t, true);
-      if (st === 'ok') landOk[i] = 1;
-      else if (st === 'warn') landWarn[i] = 1;
-      continue;
-    }
-    if (gt48(sunUp, i, 'sun') && gt48(earthUp, i, 'earth')) landOk[i] = 1;
-    else landWarn[i] = 1;
+    const st = judge(true, true, hoursLeft(sunLeft, i, 'sun'), hoursLeft(earthLeft, i, 'earth'));
+    if (st === 'ok') landOk[i] = 1; else if (st === 'warn') landWarn[i] = 1;
   }
   const runs = arr => {
     const out = [];
@@ -1214,7 +1235,7 @@ function buildStripData(p) {
   };
   const landRuns = runs(landOk);
   p._strip = {
-    startMs: stripStartMs, n, v: p.dataVersion, sunUp, earthUp, landOk, landWarn,
+    startMs: stripStartMs, n, v: p.dataVersion, mission: missionH, samples, sunLeft, earthLeft, sunUp, earthUp, landOk, landWarn,
     sunRuns: runs(sunUp), earthRuns: runs(earthUp), landRuns,
     warnRuns: runs(landWarn),
     landWins: landRuns.map(([s, e]) => ({ startMs: samples[s].t.getTime(), endMs: samples[Math.min(e, n - 1)].t.getTime(), hours: e - s })),
@@ -1235,7 +1256,23 @@ function renderBands(card, p) {
     (st ? rects(st.sunRuns, 0, 'b-sun') +
       rects(st.earthRuns, 9.5, 'b-earth') +
       rects(st.landRuns, 19, 'b-land') +
-      rects(st.warnRuns, 19, 'b-warn') : '');
+      rects(st.warnRuns, 19, 'b-warn') : '') +
+    '<rect class="b-sun-left" x="0" y="0" width="0" height="7"/><rect class="b-earth-left" x="0" y="9.5" width="0" height="7"/>';
+  card.sunLeftRect = card.bandSvg.querySelector('.b-sun-left');
+  card.earthLeftRect = card.bandSvg.querySelector('.b-earth-left');
+}
+
+// Brighten each bar from the cursor to the next sunset or Earthset: the time left, with no words
+function renderTimeLeft(card, p, nowMs) {
+  const st = p._strip;
+  if (!st || !card.sunLeftRect) return;
+  const h = (nowMs - st.startMs) / 36e5, k = Math.round(h), W = st.n - 1;
+  for (const [rect, up, left] of [[card.sunLeftRect, st.sunUp, st.sunLeft], [card.earthLeftRect, st.earthUp, st.earthLeft]]) {
+    const on = k >= 0 && k <= W && up[k];
+    const x = Math.max(0, h), end = on ? Math.min(W, k + left[k]) : x;
+    rect.setAttribute('x', x.toFixed(2));
+    rect.setAttribute('width', Math.max(0, end - x).toFixed(2));
+  }
 }
 
 // A popover that opens on hover (mouse) or click, sits in the top layer, and is placed by hand,
@@ -1292,9 +1329,11 @@ function makeCardDOM() {
     </header>
     <div class="view">
       <div class="view-3d"></div>
+      <div class="sky-chart" hidden></div>
+      <button type="button" class="sm sky-btn" aria-pressed="false"></button>
       <button type="button" class="sm full-btn" aria-label="Drive a rover here (full screen)">${icon('expand')}</button>
-      <div class="sky-lbl" hidden>${icon('arrow')}<span></span></div>
-      <div class="sky-lbl" hidden>${icon('arrow')}<span></span></div>
+      <div class="sky-lbl" role="img" hidden>${icon('arrow')}${icon('sun')}<span></span></div>
+      <div class="sky-lbl" role="img" hidden>${icon('arrow')}${icon('earth')}<span></span></div>
     </div>
     <div class="foot">
       <div class="answer-row">
@@ -1327,6 +1366,9 @@ function makeCardDOM() {
     col, row, sunLbl, earthLbl,
     view: col.querySelector('.view'),
     view3d: col.querySelector('.view-3d'),
+    skyEl: col.querySelector('.sky-chart'),
+    skyBtn: col.querySelector('.sky-btn'),
+    sky: null, skyOn: false, skyKey: '',
     fullBtn: col.querySelector('.full-btn'),
     letters: [col.querySelector('.letter'), row.querySelector('.letter')],
     name: col.querySelector('.site-name'),
@@ -1344,23 +1386,45 @@ function makeCardDOM() {
     bandSvg: row.querySelector('svg'),
   };
   card.popCtl = bindPop(card.infoBtn, card.pop);
+  setSkyButton(card);
   return card;
+}
+
+const SKY_LABEL = 'Show the sky: the skyline with the Sun and Earth paths';
+function setSkyButton(card) {
+  const label = card.skyOn ? 'Show the terrain' : SKY_LABEL;
+  card.skyBtn.innerHTML = icon(card.skyOn ? 'mountain' : 'sunrise');
+  card.skyBtn.setAttribute('aria-pressed', String(card.skyOn));
+  card.skyBtn.setAttribute('aria-label', label);
+  card.skyBtn.title = label;
+}
+// Swap a card between the 3D terrain and the sky chart. The terrain view is skipped while the chart shows.
+function setSkyMode(p, card, on) {
+  card.skyOn = on;
+  card.view.classList.toggle('sky-on', on);
+  card.skyEl.hidden = !on;
+  setSkyButton(card);
+  if (p.view) { p.view.hidden = on; app.stage.request(); }
+  if (on && !card.sky) card.sky = createSkyChart(card.skyEl);
+  card.skyKey = '';
+  updateSky(p, card);
+  if (!on) updateSkyLabels(p);
+}
+function updateSky(p, card) {
+  if (!card.skyOn || !card.sky || !p._strip) return;
+  const key = `${p._strip.startMs}:${p._strip.v}`;
+  if (card.skyKey !== key) { card.skyKey = key; card.sky.setData({ horizon: p.relief.site.horizon, track: p._strip.samples }); }
+  const site = p.relief.site;
+  card.sky.setNow({ sun: L.sun(site, app.date), earth: L.earth(site, app.date) });
 }
 
 function updateCardReadout(card, site, s, strip, nowMs, mapText) {
   const c = checkStats(s);
   const sc = s.summary.sunChange, ec = s.summary.earthChange;
 
-  // landing window: open now (and when it closes), closing soon, or the next one in the 30 days
-  let closeH = Infinity;
-  if (c.state === 'ok') {
-    if (!useTeamVerdict) {
-      closeH = Math.min(isFinite(sc.hours) ? Math.max(0, sc.hours - 48) : Infinity, isFinite(ec.hours) ? Math.max(0, ec.hours - 48) : Infinity);
-    } else {
-      const cur = strip.landWins.find(w => nowMs >= w.startMs && nowMs <= w.endMs);
-      if (cur) closeH = Math.max(0, (cur.endMs - nowMs) / 36e5 + 1);
-    }
-  }
+  // landing window: open now (and when it closes: the mission must end before the Sun or Earth sets),
+  // too short for the mission, or the next one in the 30 days
+  const closeH = c.state === 'ok' ? Math.max(0, Math.min(sc.hours, ec.hours) - missionH) : Infinity;
   const next = c.state === 'void' ? strip.landWins.find(w => w.startMs > nowMs) : null;
 
   // one short answer per card; the full reasons live in the Info popover
@@ -1369,17 +1433,13 @@ function updateCardReadout(card, site, s, strip, nowMs, mapText) {
     answer = isFinite(closeH) ? `Go for ${fmtDuration(closeH)}` : 'Go for 30+ days';
     windowText = isFinite(closeH) ? `Open, closes in ${fmtDuration(closeH)}` : 'Open for 30+ days';
   } else if (c.state === 'warn') {
-    const sunLow = sc.hours <= 48, earthLow = ec.hours <= 48;
+    const sunLow = sc.hours <= missionH, earthLow = ec.hours <= missionH;
     answer = sunLow && earthLow ? `Sun and Earth set in ${fmtDuration(Math.min(sc.hours, ec.hours))}`
       : sunLow ? `Sun sets in ${fmtDuration(sc.hours)}`
-      : earthLow ? `Earth sets in ${fmtDuration(ec.hours)}`
-      : (c.why || 'Short window');
-    windowText = `Open, but 48 hours or less left`;
+      : `Earth sets in ${fmtDuration(ec.hours)}`;
+    windowText = `Open, but too short for a ${missionH / 24}-day mission`;
   } else {
-    answer = useTeamVerdict && c.why ? c.why
-      : !s.sunUp && !s.earthUp ? 'Dark, Earth hidden'
-      : !s.sunUp ? 'Dark now'
-      : 'Earth hidden';
+    answer = c.why;
     windowText = next ? `Next opens ${fmtShortDT(new Date(next.startMs))}, for ${fmtDuration(next.hours)}` : 'No window in the next 30 days';
     if (!next) answer += ' · no window in 30 days';
   }
@@ -1401,7 +1461,7 @@ function updateCardReadout(card, site, s, strip, nowMs, mapText) {
   }
 
   const slipStates = SLIP.map((o, k) => {
-    const st = checkStateAtDate(site, new Date(nowMs + o.hours * 36e5), useTeamVerdict);
+    const st = checkStateAtDate(site, new Date(nowMs + o.hours * 36e5));
     const seg = card.slipSegs[k];
     seg.className = `slip-seg ${st}`;
     const tip = `If the launch is ${o.label} late: ${SLIP_WORDS[st]}`;
@@ -1409,10 +1469,9 @@ function updateCardReadout(card, site, s, strip, nowMs, mapText) {
     return `${o.label}: ${SLIP_WORDS[st]}`;
   });
 
-  const deg = m => `${Math.abs(m).toFixed(1)}°`;
   const dosText = [
-    `${s.sunUp ? `Up, ${deg(s.sunMargin)} above the skyline` : `Down, ${deg(s.sunMargin)} below the skyline`}. ${sunLine(s)}.`,
-    `${s.earthUp ? `In view, ${deg(s.earthMargin)} above the skyline` : `Hidden, ${deg(s.earthMargin)} below the skyline`}. ${earthLine(s)}.`,
+    `${s.sunUp ? 'Up' : 'Down'}, ${angleWords(s.summary.sun)}. ${sunLine(s)}.`,
+    `${s.earthUp ? 'In view' : 'Hidden'}, ${angleWords(s.summary.earth)}. ${earthLine(s)}.`,
     windowText,
     slipStates.join(' · '),
     s.summary.longestDark < 0.5 ? `${s.sunShare}% sunlit, never dark` : `${s.sunShare}% sunlit, longest dark ${fmtDuration(s.summary.longestDark)}`,
@@ -1442,6 +1501,7 @@ const bootCards = START_SITES.map((s, i) => {
   card.fullBtn.setAttribute('aria-disabled', 'true');
   card.answer.className = 'answer loading';
   card.answerText.textContent = 'Loading data…';
+  card.skyBtn.disabled = true;
   for (const seg of card.slipSegs) seg.className = 'slip-seg loading';
   card.dos.forEach(el => { el.textContent = 'Loading…'; });
   renderBands(card, null);
@@ -1457,12 +1517,17 @@ app = await createApp({
   maxPlaces: MAX_SITES,
   wallColor: 0x22242a,
   date: START_DATE,
-  start: START_SITES.map(s => ({ lat: s.lat, lon: s.lon, name: s.name })),
+  ephemeris: 'data/ephemeris.json?v=2', // the version must match the preload link in <head>
+  start: START_SITES.map(s => ({ lat: s.lat, lon: s.lon, name: s.custom ? undefined : s.name })),
   onDataReady: () => {
     if (appReady) return;
-    const nowMs = START_DATE.getTime();
+    // a shared link may ask for a date the table does not cover: use the nearest one it does, as the app will
+    const lastMs = L.RANGE.end.getTime() - 61 * 864e5;
+    const nowMs = Math.min(Math.max(START_DATE.getTime(), L.RANGE.start.getTime()), lastMs);
+    stripStartMs = nowMs;
     for (const { site, card } of bootCards) {
-      const stats = siteStats(site, START_DATE);
+      if (site.custom) continue; // its skyline is cast once the Moon's heights arrive
+      const stats = siteStats(site, new Date(nowMs));
       const holder = { relief: { site }, stats, dataVersion: 0 };
       buildStripData(holder);
       renderBands(card, holder);
@@ -1490,22 +1555,24 @@ if (app.dateRange) {
   $('date-picker').min = L.fmtDate(app.dateRange.start);
   $('date-picker').max = L.fmtDate(app.dateRange.end);
 }
+// a shared link with only places away from the south pole turns the Moon to the first of them
+if (START_SITES.every(s => s.lat > -80)) app.focus(START_SITES[0].lat, START_SITES[0].lon, 3.0);
 
 // Sun and Earth labels in a terrain view: above the body when it is in frame, else on the edge with an arrow toward it
 function updateSkyLabels(p) {
   const card = cards.get(p.id);
-  if (!card || !p.skyObjs || !p.camera || !p.stats) return;
+  if (!card || card.skyOn || !p.skyObjs || !p.camera || !p.stats) return;
   const W = card.view.clientWidth, H = card.view.clientHeight;
   if (W < 10 || H < 10) return;
   const cam = p.camera;
   cam.updateMatrixWorld(true);
   cam.matrixWorldInverse.copy(cam.matrixWorld).invert();
-  const btn = card.fullBtn;
+  const btn = card.skyBtn; // the left one of the two buttons in the view's top-right corner
   const btnL = btn.offsetLeft - 6, btnB = btn.offsetTop + btn.offsetHeight + 6;
-  const placed = [];
+  const placed = [], sum = p.stats.summary;
   for (const it of [
-    { name: 'Sun', up: p.stats.sunUp, margin: p.stats.sunMargin, obj: p.skyObjs.sun, el: card.sunLbl },
-    { name: 'Earth', up: p.stats.earthUp, margin: p.stats.earthMargin, obj: p.skyObjs.earth, el: card.earthLbl },
+    { name: 'Sun', up: p.stats.sunUp, words: skyWords('Sun', sum.sun, sum.sunChange), obj: p.skyObjs.sun, el: card.sunLbl },
+    { name: 'Earth', up: p.stats.earthUp, words: skyWords('Earth', sum.earth, sum.earthChange), obj: p.skyObjs.earth, el: card.earthLbl },
   ]) {
     const c = it.obj.position.clone().applyMatrix4(cam.matrixWorldInverse);
     const ndc = it.obj.position.clone().project(cam);
@@ -1514,11 +1581,9 @@ function updateSkyLabels(p) {
     if (!front) { x = W - x; y = H - y; }
     const inside = front && x > 12 && x < W - 12 && y > 12 && y < H - 12;
 
-    // height above the LOLA skyline in the body's direction, which is what decides light and radio
-    const txt = it.up
-      ? `${it.name} ${Math.abs(it.margin).toFixed(1)}°`
-      : `${it.name} −${Math.abs(it.margin).toFixed(1)}° (below)`;
-    if (it.el._txt !== txt) { it.el._txt = txt; it.el.lastChild.textContent = txt; }
+    // the icon always; the words (height, hidden or not, time until it changes) only while the pointer is over the view
+    const txt = it.words;
+    if (it.el._txt !== txt) { it.el._txt = txt; it.el.lastChild.textContent = txt; it.el.setAttribute('aria-label', txt); }
     it.el.classList.toggle('down', !it.up);
     it.el.firstChild.style.display = inside ? 'none' : '';
     if (it.el.hidden) it.el.hidden = false;
@@ -1597,7 +1662,7 @@ function bindBandTip(el, p) {
     const r = el.getBoundingClientRect();
     const k = Math.round(Math.max(0, Math.min(1, (e.clientX - r.left) / Math.max(1, r.width))) * (st.n - 1));
     const t = new Date(st.startMs + k * 36e5);
-    const land = st.landOk[k] ? 'good to land' : st.landWarn[k] ? '48 hours or less left' : 'cannot land';
+    const land = SLIP_WORDS[st.landOk[k] ? 'ok' : st.landWarn[k] ? 'warn' : 'void'];
     const letter = LETTERS[app.places.indexOf(p)] || '';
     tlTip.innerHTML = `<strong>${letter} · ${esc(fmtShortDT(t))}</strong><span>Sun ${st.sunUp[k] ? 'up' : 'down'} · Earth ${st.earthUp[k] ? 'in view' : 'hidden'} · ${land}</span>`;
     tlTip.hidden = false;
@@ -1618,9 +1683,20 @@ function createSite(a, p) {
     // full screen must be asked for inside the click: browsers refuse it once the click is over
     // a script's click (tests, automation) has no user activation: skip the request instead of logging a refusal
     if (navigator.userActivation?.isActive ?? true) document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }).catch(() => {});
-    const { openRover } = await import('./lib/rover.js?v=28');
+    let openRover;
+    try {
+      ({ openRover } = await import('./lib/rover.js?v=29'));
+    } catch (e) {
+      console.warn('The rover did not load:', e);
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+      showNotice('Could not load the rover. Check the connection and try again.', 5000);
+      return;
+    }
     openRover(a, p, { letter: LETTERS[a.places.indexOf(p)], icon, fmtWhen });
   };
+  card.skyBtn.onclick = () => setSkyMode(p, card, !card.skyOn);
+  // the markers' words appear on hover, which changes their width: place them again
+  for (const ev of ['pointerenter', 'pointerleave', 'focusin', 'focusout']) card.view.addEventListener(ev, () => requestAnimationFrame(() => updateSkyLabels(p)));
   card.removeBtn.onclick = () => {
     clearNotice();
     a.removePlace(p);
@@ -1671,10 +1747,11 @@ function render(a, fast = false) {
     if (!card) card = createSite(a, p);
     else { sitesEl.append(card.col); $('tl-rows').append(card.row); }
 
-    if (!p._strip || p._strip.startMs !== stripStartMs || p._strip.v !== p.dataVersion) {
+    if (!p._strip || p._strip.startMs !== stripStartMs || p._strip.v !== p.dataVersion || p._strip.mission !== missionH) {
       buildStripData(p);
       renderBands(card, p);
     }
+    renderTimeLeft(card, p, nowMs);
 
     for (const el of card.letters) el.textContent = LETTERS[i];
     card.name.textContent = p.name;
@@ -1699,7 +1776,10 @@ function render(a, fast = false) {
 
     updateCardReadout(card, p.relief.site, p.stats, p._strip, nowMs, card.mapText);
     updateSkyLabels(p);
+    updateSky(p, card);
   });
+  syncPlay();
+  if (!fast) saveLink();
 
   let tlEmpty = $('tl-rows').querySelector('.tl-empty');
   if (!a.places.length && !tlEmpty) {
@@ -1962,7 +2042,76 @@ $('when').onclick = () => {
 $('date-picker').onchange = e => {
   const [y, m, day] = e.target.value.split('-').map(Number);
   if (!y || !m || !day) return;
-  app.setDate(new Date(Date.UTC(y, m - 1, day, app.date.getUTCHours(), app.date.getUTCMinutes())));
+  const want = new Date(Date.UTC(y, m - 1, day, app.date.getUTCHours(), app.date.getUTCMinutes()));
+  const { start, end } = app.dateRange;
+  if (want < start || want > end) {
+    const d = x => `${x.getUTCDate()} ${MONTHS[x.getUTCMonth()]} ${x.getUTCFullYear()}`;
+    showNotice(`Pick a date from ${d(start)} to ${d(end)}`, 4000);
+  }
+  app.setDate(want);
+};
+
+// Mission length: the team's rule checks that the Sun and Earth stay up this long
+$('mission').onchange = e => {
+  missionH = Number(e.target.value) * 24;
+  render(app);
+};
+
+// Play: 1 day per second, so a whole lunar day passes in about 30 seconds
+let playIcon = '';
+function syncPlay() {
+  const playing = !!app?.playing, want = playing ? 'pause' : 'play';
+  if (playIcon === want) return;
+  playIcon = want;
+  const b = $('play'), label = playing ? 'Pause' : 'Play, 1 day per second';
+  b.innerHTML = icon(want);
+  b.setAttribute('aria-pressed', String(playing));
+  b.setAttribute('aria-label', label);
+  b.title = label;
+}
+$('play').onclick = () => {
+  if (app.playing) app.pause();
+  else {
+    if (app.date.getTime() >= app.dateRange.end.getTime()) app.setDate(app.dateRange.start);
+    app.play(24);
+  }
+  syncPlay();
+};
+
+// The address bar always holds a link to this view: sites, date, mission length
+let linkTimer = 0;
+function linkState() {
+  const q = [`t=${app.date.toISOString().slice(0, 16)}`, `m=${missionH / 24}`];
+  for (const p of app.places) {
+    const s = L.SITES.find(s => Math.abs(s.lat - p.lat) < 0.005 && Math.abs(s.lon - p.lon) < 0.005);
+    q.push(`s=${s ? s.id : `${p.lat.toFixed(4)}_${p.lon.toFixed(4)}`}`);
+  }
+  return '#' + q.join('&');
+}
+function saveLink() {
+  clearTimeout(linkTimer);
+  linkTimer = setTimeout(() => { const h = linkState(); if (location.hash !== h) history.replaceState(null, '', h); }, 400);
+}
+
+// Download the 30 days on the timeline as a table, one row per site per hour
+$('csv-btn').onclick = () => {
+  const head = ['site', 'latitude_deg', 'longitude_deg', 'time_utc', 'sun_elevation_deg', 'sun_azimuth_deg', 'skyline_toward_sun_deg', 'sun_above_skyline',
+    'earth_elevation_deg', 'earth_azimuth_deg', 'skyline_toward_earth_deg', 'earth_in_view', `landing_${missionH / 24}_day_mission`];
+  const rows = [head];
+  for (const p of app.places) {
+    const st = p._strip;
+    if (!st) continue;
+    st.samples.forEach((x, i) => rows.push([p.name, p.lat.toFixed(5), p.lon.toFixed(5), x.t.toISOString().slice(0, 16) + 'Z',
+      x.sun.el.toFixed(3), x.sun.az.toFixed(2), x.sun.hz.toFixed(3), x.sun.up ? 1 : 0,
+      x.earth.el.toFixed(3), x.earth.az.toFixed(2), x.earth.hz.toFixed(3), x.earth.up ? 1 : 0,
+      st.landOk[i] ? 'go' : st.landWarn[i] ? 'too_short' : 'no']));
+  }
+  const cell = v => /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['﻿' + rows.map(r => r.map(cell).join(',')).join('\n')], { type: 'text/csv' }));
+  a.download = `lunar-sites-${L.fmtDate(new Date(stripStartMs))}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 };
 
 syncTime(app.date);
