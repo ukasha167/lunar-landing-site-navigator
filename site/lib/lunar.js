@@ -17,6 +17,7 @@
   for every picked place.
 
   No dependencies. Exposes window.Lunar.
+  Written with Claude Code (an AI coding agent) at the team's direction. See README.md, "Use of AI".
 */
 (function () {
   const D2R = Math.PI / 180, R2D = 180 / Math.PI;
@@ -42,10 +43,18 @@
     { id: 'leibnitz', name: "Leibnitz Beta Plateau", short: "Leibnitz beta", lat: -85.41319, lon: 31.69247, group: "Artemis III candidate regions" },
     { id: 'malap', name: "Malapert Massif", short: "Malapert", lat: -86.03359, lon: 3.07285, group: "Artemis III candidate regions" },
     { id: 'kocher', name: "de Gerlache-Kocher Massif", short: "Kocher massif", lat: -85.82646, lon: -116.31613, group: "Artemis III candidate regions" },
-    { id: 'mouton', name: "Mons Mouton (IM-2)", short: "Mons Mouton", lat: -84.8, lon: 29.2, group: "Past landings" },
-    { id: 'ch3', name: "Shiv Shakti (Chandrayaan-3)", short: "Shiv Shakti", lat: -69.37, lon: 32.32, group: "Past landings" },
-    { id: 'ce6', name: "Chang'e-6, Apollo basin", short: "Chang'e-6", lat: -41.64, lon: -153.99, group: "Past landings" },
     { id: 'a11', name: "Tranquility Base (Apollo 11)", short: "Apollo 11", lat: 0.674, lon: 23.473, group: "Past landings" },
+    { id: 'a12', name: "Ocean of Storms (Apollo 12)", short: "Apollo 12", lat: -3.0124, lon: -23.4216, group: "Past landings" },
+    { id: 'a14', name: "Fra Mauro (Apollo 14)", short: "Apollo 14", lat: -3.6453, lon: -17.4714, group: "Past landings" },
+    { id: 'a15', name: "Hadley Rille (Apollo 15)", short: "Apollo 15", lat: 26.1322, lon: 3.6339, group: "Past landings" },
+    { id: 'a16', name: "Descartes (Apollo 16)", short: "Apollo 16", lat: -8.973, lon: 15.5002, group: "Past landings" },
+    { id: 'a17', name: "Taurus-Littrow (Apollo 17)", short: "Apollo 17", lat: 20.1908, lon: 30.7717, group: "Past landings" },
+    { id: 'ce4', name: "Von K\u00e1rm\u00e1n (Chang'e-4)", short: "Chang'e-4", lat: -45.4561, lon: 177.5885, group: "Past landings" },
+    { id: 'ch3', name: "Shiv Shakti (Chandrayaan-3)", short: "Shiv Shakti", lat: -69.37, lon: 32.32, group: "Past landings" },
+    { id: 'slim', name: "Shioli (SLIM)", short: "SLIM", lat: -13.316, lon: 25.251, group: "Past landings" },
+    { id: 'ce6', name: "Chang'e-6, Apollo basin", short: "Chang'e-6", lat: -41.64, lon: -153.99, group: "Past landings" },
+    { id: 'bg1', name: "Mare Crisium (Blue Ghost 1)", short: "Blue Ghost 1", lat: 18.5622, lon: 61.8103, group: "Past landings" },
+    { id: 'mouton', name: "Mons Mouton (IM-2)", short: "Mons Mouton", lat: -84.8, lon: 29.2, group: "Past landings" },
     // SITES:END
   ];
   const flat = () => new Float32Array(360);
@@ -196,18 +205,21 @@
   }
 
   /*
-    verdict(sum) turns a summary into a call a planner can act on.
-    Return one of: { level: 'go' | 'marginal' | 'no-go', reason: '<short text>' }
-    or null while the rule is not written (prototypes then show "unscored").
-
-    Available on sum: sunFrac, earthFrac, bothFrac (0..1 over the window),
-    meanSunEl, maxSunEl (deg), longestDark (hours), sun.up, earth.up,
-    sun.margin / earth.margin (deg above local horizon),
-    sunChange.hours / earthChange.hours (hours until the current state flips).
+    verdict(sum, { missionHours }) is the team's go/no-go rule, set by the team lead on 15 Nov 2026.
+    The planner picks the mission length on the page (2, 7 or 14 days).
+      go        the Sun is above the skyline and Earth is in view now, and both stay up for longer than the mission
+      marginal  both are up now, but one of them sets before the mission ends
+      no-go     the Sun is below the skyline or Earth is out of view now
+    Returns { level: 'go' | 'marginal' | 'no-go', reason: '<short text>' }.
+    It reads only sun.up, earth.up, sunChange.hours and earthChange.hours, so the timeline can call it once
+    per hour with numbers it already has.
   */
-  function verdict(sum) {
-    // TODO(human): decide what makes a site-date "go", "marginal" or "no-go".
-    return null;
+  function verdict(sum, { missionHours = 48 } = {}) {
+    const sunUp = sum.sun.up, earthUp = sum.earth.up;
+    if (!sunUp || !earthUp) return { level: 'no-go', reason: !sunUp && !earthUp ? 'Dark, Earth hidden' : !sunUp ? 'Dark now' : 'Earth hidden' };
+    const sh = sum.sunChange.hours, eh = sum.earthChange.hours;
+    if (sh > missionHours && eh > missionHours) return { level: 'go', reason: '' };
+    return { level: 'marginal', reason: sh <= eh ? 'Sun sets first' : 'Earth sets first' };
   }
 
   function fmtHours(h) {
