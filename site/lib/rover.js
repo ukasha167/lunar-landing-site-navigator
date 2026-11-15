@@ -789,7 +789,7 @@ function build(app, place, { letter = '', icon = () => '', fmtWhen = d => d.toIS
     const show = () => { clearTimeout(timer); if (!open()) pop.showPopover(); btn.setAttribute('aria-expanded', 'true'); place(); };
     const hide = () => { clearTimeout(timer); pinned = false; if (open()) pop.hidePopover(); btn.setAttribute('aria-expanded', 'false'); };
     const hideSoon = () => { clearTimeout(timer); if (!pinned) timer = setTimeout(hide, 150); };
-    btn.addEventListener('pointerenter', e => { if (e.pointerType === 'mouse') show(); });
+    btn.addEventListener('pointerenter', e => { if (e.pointerType === 'mouse') { clearTimeout(timer); timer = setTimeout(show, 250); } });
     btn.addEventListener('pointerleave', hideSoon);
     pop.addEventListener('pointerenter', () => clearTimeout(timer));
     pop.addEventListener('pointerleave', hideSoon);

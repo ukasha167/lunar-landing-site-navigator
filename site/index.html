@@ -269,7 +269,7 @@
     bottom: 8px;
     z-index: 4;
   }
-  .info-btn { anchor-name: --info-btn; }
+  .info-btn { anchor-name: --info-btn; interest-delay-start: 250ms; }
   /* turns the Moon back to the view the page opened with; sits to the right of the (i) button */
   .reset-btn {
     position: absolute;
@@ -1318,6 +1318,7 @@ function renderTimeLeft(card, p, nowMs) {
 
 // A popover that opens on hover (mouse) or click, sits in the top layer, and is placed by hand,
 // so it never takes room in the page. Click pins it open; a click outside or Escape closes it.
+const HOVER_DELAY = 250; // ms the pointer must rest on a button before its popover opens
 const openPops = new Set();
 function bindPop(btn, pop) {
   let pinned = false, timer = null;
@@ -1343,7 +1344,7 @@ function bindPop(btn, pop) {
     openPops.delete(ctl);
   };
   const hideSoon = () => { clearTimeout(timer); if (!pinned) timer = setTimeout(hide, 150); };
-  btn.addEventListener('pointerenter', e => { if (e.pointerType === 'mouse') show(); });
+  btn.addEventListener('pointerenter', e => { if (e.pointerType === 'mouse') { clearTimeout(timer); timer = setTimeout(show, HOVER_DELAY); } });
   btn.addEventListener('pointerleave', hideSoon);
   pop.addEventListener('pointerenter', () => clearTimeout(timer));
   pop.addEventListener('pointerleave', hideSoon);
@@ -1733,7 +1734,7 @@ function createSite(a, p) {
     if (navigator.userActivation?.isActive ?? true) document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }).catch(() => {});
     let openRover;
     try {
-      ({ openRover } = await import('./lib/rover.js?v=29'));
+      ({ openRover } = await import('./lib/rover.js?v=31'));
     } catch (e) {
       console.warn('The rover did not load:', e);
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
@@ -2029,7 +2030,7 @@ for (const ev of ['pointerdown', 'pointerup', 'pointermove']) {
 infoWrap.addEventListener('pointerenter', () => {
   clearTimeout(infoHideTimer);
   refreshGlobeHint(null, app.places.length);
-  if (!hasNativeInterest) showInfo();
+  if (!hasNativeInterest) infoHideTimer = setTimeout(showInfo, HOVER_DELAY);
 });
 if (!hasNativeInterest) {
   infoWrap.addEventListener('pointerleave', scheduleHideInfo);
