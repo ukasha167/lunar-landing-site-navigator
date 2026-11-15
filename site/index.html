@@ -1596,10 +1596,10 @@ function updateSkyLabels(p) {
     } else {
       const ang = Math.atan2(y - H / 2, x - W / 2);
       it.el.firstChild.style.transform = `rotate(${ang.toFixed(3)}rad)`;
-      const ex = W / 2 - 8 - w / 2, ey = H / 2 - 8 - h / 2;
-      const k = Math.min(ex / Math.max(1e-6, Math.abs(Math.cos(ang))), ey / Math.max(1e-6, Math.abs(Math.sin(ang))));
-      left = W / 2 + Math.cos(ang) * k - w / 2;
-      top = H / 2 + Math.sin(ang) * k - h / 2;
+      // Out of frame: keep the label off the terrain. Body above the frame: top edge. Below the frame: bottom edge.
+      // Level with the frame but off to a side (the middle): top edge. Sideways it follows the body, clamped below.
+      left = x - w / 2;
+      top = y > H ? H - h - 8 : 8;
     }
     left = Math.max(8, Math.min(W - w - 8, left));
     top = Math.max(8, Math.min(H - h - 8, top));
