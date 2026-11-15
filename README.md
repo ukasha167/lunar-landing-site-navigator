@@ -2,7 +2,7 @@
 
 NASA Space Apps Challenge 2026 entry. Pick up to three landing sites and a date, and see the Sun and Earth against each site's real skyline: when the power runs out and when the radio link to Earth drops.
 
-Live site: https://ukasha167.github.io/lunar-landing-site-navigator/
+Live site: https://lunar-landing-site-navigator.pages.dev/
 Demo video: linked on our Space Apps project page.
 
 ## What it does
